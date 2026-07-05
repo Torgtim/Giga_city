@@ -286,12 +286,21 @@ let shootHeld=false;
 const mouse={x:0,y:0,active:false};
 window.addEventListener('keydown',e=>{ if(e.code==='KeyF'){shootHeld=true; mouse.active=false;} });
 window.addEventListener('keyup',e=>{ if(e.code==='KeyF')shootHeld=false; });
-cv.addEventListener('mousemove',e=>{ mouse.x=e.clientX; mouse.y=e.clientY; });
-cv.addEventListener('mousedown',e=>{ shootHeld=true; mouse.active=true; mouse.x=e.clientX; mouse.y=e.clientY; });
+let lastTouchT=-9999;
+window.addEventListener('touchstart',()=>{ lastTouchT=performance.now(); mouse.active=false; },{passive:true});
+cv.addEventListener('mousemove',e=>{
+  if(performance.now()-lastTouchT<1500) return; // falsk mus fra touch – ignorer!
+  mouse.x=e.clientX; mouse.y=e.clientY;
+});
+cv.addEventListener('mousedown',e=>{
+  if(performance.now()-lastTouchT<1500) return; // falsk mus fra touch – ignorer!
+  shootHeld=true; mouse.active=true; mouse.x=e.clientX; mouse.y=e.clientY;
+});
 window.addEventListener('mouseup',()=>{ shootHeld=false; });
 cv.addEventListener('contextmenu',e=>e.preventDefault());
 
 function hasWeapon(){ return state.owned.some(Boolean); }
+function hasSMGplus(){ for(let i=1;i<N_W;i++) if(state.owned[i]) return true; return false; }
 function curWpn(){ return WEAPONS[state.curW]; }
 function cycleWeapon(){
   if(!hasWeapon()) return;
@@ -346,7 +355,7 @@ const state = {
   hp:100, hurtCd:0, ko:false,
   gun:{ammo:0}, owned:[false,false,false,false,false], curW:0, shootCd:0, ammoMsgCd:0,
   nades:0, nadeCd:0, robs:0, medkits:0,
-  copHeatCd:0, shellCd:0,
+  copHeatCd:0, pedHeatCd:0, shellCd:0,
   vehTokens:{atv:0,heli:0,jet:0,tank:0},
   carUp:{motor:0,panser:0},
   interior:null,
@@ -868,7 +877,7 @@ function updateBullets(dt){
           p.state='down'; p.ktimer=1.4; p.shot=true;
           dmgFloat(p.x,p.y-16,'💫 ELIMINERT','#ffd54a');
           pickups.push({x:p.x,y:p.y,val:10+((Math.random()*20)|0),taken:false,type:'cash'});
-          addWanted(1);
+          pedHeat();
           dead=true; break;
         }
       }
@@ -1090,7 +1099,7 @@ function initShops(){
       const x=(bx*8+2)*T+T/2, y=(by*8+2)*T+T/2;
       if(h<0.08){ shops.push({x,y,type:'våpen',cd:0}); }        // gatelanger
       else if(h<0.115){ shops.push({x,y,type:'mekker',cd:0,name:"MEKKER'N"}); } // verksted
-      else if(h<0.15){ shops.push({x,y,type:'lege',cd:0}); }    // lege
+      else if(h<0.15){ shops.push({x,y,type:'lege',cd:0,name:'LEGEN'}); } // lege
       else{
         const h2=hash2(bx*7+3,by*9+5);
         const tier = h2<0.5?1 : h2<0.85?2 : 3;
@@ -1105,7 +1114,7 @@ function initShops(){
   // garanterte steder nær start:
   shops.push({x:34*T+T/2, y:26*T+T/2, type:'våpen', cd:0});   // gatelanger
   shops.push({x:42*T+T/2, y:34*T+T/2, type:'mekker', cd:0, name:"MEKKER'N"});
-  shops.push({x:34*T+T/2, y:42*T+T/2, type:'lege', cd:0});    // legen
+  shops.push({x:34*T+T/2, y:42*T+T/2, type:'lege', cd:0, name:'LEGEN'});
   shops.push({x:18*T+T/2, y:50*T+T/2, type:'kjøretøy', cd:0, open:true,
     name:'KJØRETØYBUTIKKEN', robTime:6});
   shops.push({x:26*T+T/2, y:34*T+T/2, type:'butikk', cd:0, open:true,
@@ -1116,6 +1125,12 @@ function initShops(){
   // POLITISTASJONEN – gå inn hvis du tør
   shops.push({x:JAIL.x, y:JAIL.y, type:'politi', cd:0, open:true,
     tier:1, name:'POLITISTASJONEN', robTime:6});
+  // FIKS: fjern hash-butikker som havnet oppå de faste (behold den sist lagt til)
+  for(let i=shops.length-2;i>=0;i--){
+    for(let j=shops.length-1;j>i;j--){
+      if(dist(shops[i].x,shops[i].y,shops[j].x,shops[j].y)<60){ shops.splice(i,1); break; }
+    }
+  }
 }
 function nearestShop(maxD){
   let best=null,bd=maxD;
@@ -1176,6 +1191,20 @@ function buyShelfItem(item){
     if(state.cash>=150){ state.cash-=150; state.nades++;
       sfx.cash(); toast('💣 +1 håndgranat! Kast med G / 💣-knappen.'); }
     else toast('Granater koster 150 kr per stk.');
+    return;
+  }
+  if(item==='heal'){
+    if(state.hp>=100){ toast('❤️ Du har full helse allerede!'); return; }
+    if(state.cash>=950){ state.cash-=950; state.hp=100;
+      beep(660,.12,'sine',.12,990); toast('🏥 Full helse! «Prøv å ikke bli skutt igjen.»'); }
+    else toast('❤️ Full helse koster 950 kr.');
+    return;
+  }
+  if(item==='medkit'){
+    if(state.medkits>=3){ toast('💊 Du bærer maks medkits (3).'); return; }
+    if(state.cash>=1800){ state.cash-=1800; state.medkits++;
+      sfx.cash(); toast('💊 Medkit kjøpt! Bruk med H / 💊-knappen.'); }
+    else toast('💊 Medkit koster 1800 kr.');
     return;
   }
   if(item==='motor'||item==='panser'){
@@ -1240,6 +1269,9 @@ function enterInterior(shop){
     I.safe={x:w-70,y:18,w:48,h:32}; // BESLAGSROMMET
     const spots=[[40,120],[w-40,170],[60,h-80],[w-70,h-70],[w/2-120,h-64]];
     for(const p of spots) I.guards.push({x:p[0],y:p[1],hp:60,cd:1+Math.random(),active:false,wpn:'pistol',cop:true});
+  } else if(shop.type==='lege'){
+    I.shelves.push({x:w/2-150,y:168,w:130,h:42,item:'heal'});
+    I.shelves.push({x:w/2+20, y:168,w:130,h:42,item:'medkit'});
   } else if(shop.type==='mekker'){
     I.shelves.push({x:w/2-150,y:168,w:130,h:42,item:'motor'});
     I.shelves.push({x:w/2+20, y:168,w:130,h:42,item:'panser'});
@@ -1255,8 +1287,13 @@ function enterInterior(shop){
       I.shelves.push({x:60+c2*(w-230), y:150+r*84, w:110, h:26});
     }
     for(let i=0;i<(shop.guards||0);i++){
-      I.guards.push({x:w-46-i*44,y:96+i*36,hp:45,cd:1+Math.random(),active:false,wpn:'pistol',
-        soft: shop.tier===3 ? 1.6 : 1}); // gullsmed-vakter er mykere
+      const elite = shop.tier===3; // gullsmed: elitevakter!
+      I.guards.push({x:w-46-i*44,y:96+i*36,
+        hp: elite?90:45,
+        cd:1+Math.random(), active:false, wpn:'pistol',
+        soft: elite?1.3:1,          // tar fortsatt litt ekstra av DINE kuler…
+        pd: elite?11:9,             // …men skyter hardere
+        pcd: elite?0.55:0.85});     // …og raskere. (Granat one-shotter dem fortsatt 😎)
     }
   }
   bullets.length=0; grenades.length=0;
@@ -1264,6 +1301,7 @@ function enterInterior(shop){
   if(shop.type==='våpenbutikk') toast('🏬 VÅPENBUTIKKEN. Gå til hylla for våpenet du vil ha! (Og safen bakerst… 4 vakter 👀)');
   else if(shop.type==='politi') toast('🚔 POLITISTASJONEN. Disken «ordner» stjerner for 1000 kr… og beslagsrommet er RETT der 👀');
   else if(shop.type==='mekker') toast('🔧 MEKKER\'N. Velg stasjon: ⚙️ MOTOR eller 🛡 PANSER!');
+  else if(shop.type==='lege') toast('🏥 LEGEN. Velg stasjon: ❤️ FULL HP eller 💊 MEDKIT. (Kassa er visst full…)');
   else if(shop.type==='kjøretøy') toast('🏎 KJØRETØYBUTIKKEN! Tanks, jagerfly, heli, ATV… Ran nøkkelskapet med HAGLE = tilfeldig kjøretøy 😈');
   else{
     const tips=['','Kiosk – lite i kassa, men trygt.','Matbutikk – grei kasse.','GULLSMED – feit loot… og TO væpnede vakter! 💎'];
@@ -1356,7 +1394,15 @@ function interiorAction(){
   if(dist(I.px,I.py,cx,cy)<75){
     if(I.shop.type==='våpenbutikk'){ buyAmmoStore(); return; } // disken selger ammo
     if(I.shop.type==='politi'){ bribeCop(); return; }          // korrupt betjent
-    if(I.shop.type==='mekker'){ toast('🔧 Gå bort til MOTOR- eller PANSER-stasjonen og trykk der!'); return; }
+    if(I.shop.type==='mekker'||I.shop.type==='lege'){
+      if(state.rob) return;
+      if(!hasSMGplus()){ toast('🔫 Du trenger SMG eller bedre for å rane her!'); return; }
+      if(I.shop.cd>0){ toast('🕳 Kassa er tom etter forrige ran…'); return; }
+      state.rob={shop:I.shop, t:4, total:4, ax:cx, ay:cy, kind:'tjeneste'};
+      I.clerk.panic=true; wakeGuards(I);
+      toast('💰 RANER '+(I.shop.type==='lege'?'LEGEN':'MEKKER\'N')+'… hold posisjonen!');
+      return;
+    }
     if(I.shop.type==='kjøretøy'){
       if(state.rob) return;
       if(!state.owned[2]){ toast('🏎 Du trenger HAGLE for å true til deg nøklene! 🔫'); return; }
@@ -1434,11 +1480,19 @@ function updateInterior(dt,inp){
     const d=dist(g.x,g.y,I.px,I.py);
     const a=Math.atan2(I.py-g.y,I.px-g.x);
     let gsp=0;
-    if(d>190) gsp=95; else if(d<110) gsp=-70;
-    const gx=clamp(g.x+Math.cos(a)*gsp*dt,20,I.w-20);
-    const gy=clamp(g.y+Math.sin(a)*gsp*dt,20,I.h-20);
-    if(!rectBlock(gx,g.y,8)) g.x=gx;
-    if(!rectBlock(g.x,gy,8)) g.y=gy;
+    if(d>170) gsp=105; else if(d<100) gsp=-70;
+    let ma=a;
+    if(g.dodgeT>0){ g.dodgeT-=dt; ma=g.dodge; gsp=Math.max(gsp,110); }
+    const gx=clamp(g.x+Math.cos(ma)*gsp*dt,20,I.w-20);
+    const gy=clamp(g.y+Math.sin(ma)*gsp*dt,20,I.h-20);
+    let moved=false;
+    if(!rectBlock(gx,g.y,8)){ if(Math.abs(gx-g.x)>0.05) moved=true; g.x=gx; }
+    if(!rectBlock(g.x,gy,8)){ if(Math.abs(gy-g.y)>0.05) moved=true; g.y=gy; }
+    if(!moved && gsp>0 && !(g.dodgeT>0)){
+      // sitter fast bak disk/hylle: løp RUNDT i stedet for å stange!
+      g.dodge=a+(Math.random()<0.5?1:-1)*Math.PI/2;
+      g.dodgeT=0.55+Math.random()*0.3;
+    }
     g.cd-=dt;
     if(g.cd<=0 && d<330){
       if(g.wpn==='hagle'){
@@ -1452,9 +1506,9 @@ function updateInterior(dt,inp){
       } else {
         const aa=a+(Math.random()-0.5)*0.16;
         bullets.push({x:g.x+Math.cos(aa)*14,y:g.y+Math.sin(aa)*14,
-          vx:Math.cos(aa)*400,vy:Math.sin(aa)*400,from:'guard',t:1.0,dmg:9,space:'in'});
+          vx:Math.cos(aa)*400,vy:Math.sin(aa)*400,from:'guard',t:1.0,dmg:(g.pd||9),space:'in'});
         beep(560,.05,'square',.05,260);
-        g.cd=0.85+Math.random()*0.4;
+        g.cd=(g.pcd||0.85)+Math.random()*0.35;
       }
     }
   }
@@ -1492,16 +1546,34 @@ function updateInterior(dt,inp){
           ifloat(I,I.px,I.py-30,'LOOT! 🔫','#9dfc9d');
           addWanted(3);
           toast(msg+' Du ranet POLITIET! (+⭐⭐⭐)');
+        } else if(state.rob.kind==='safe'){ // våpenbutikk-safen: cash + våpen ETT HAKK OPP!
+          const loot=800+((Math.random()*700)|0);
+          state.cash+=loot; I.shop.cd=180; state.robs++;
+          let bi=-1; for(let i=0;i<N_W;i++) if(state.owned[i]) bi=i;
+          let gi=-1;
+          for(let i=bi+1;i<N_W;i++) if(!state.owned[i]){ gi=i; break; }
+          if(gi<0) for(let i=0;i<N_W;i++) if(!state.owned[i]){ gi=i; break; }
+          let wmsg='';
+          if(gi>=0){
+            state.owned[gi]=true; state.curW=gi; state.gun.ammo+=24;
+            wmsg=' + '+WEAPONS[gi].name.toUpperCase()+' (ett hakk opp!) 🔫';
+          } else { state.gun.ammo+=50; wmsg=' + 50 ammo (du eier alt!)'; }
+          sfx.cash();
+          ifloat(I,I.px,I.py-30,'+'+loot+' kr'+(gi>=0?' 🔫':''),'#9dfc9d');
+          addWanted(4);
+          toast('💰 +'+loot+' kr'+wmsg+' Alarmen ULER! (+⭐⭐⭐⭐)');
+        } else if(state.rob.kind==='tjeneste'){ // legen / mekker'n
+          const loot=(I.shop.type==='lege'?300:250)+((Math.random()*300)|0);
+          state.cash+=loot; I.shop.cd=120; state.robs++;
+          sfx.cash();
+          ifloat(I,I.px,I.py-30,'+'+loot+' kr','#9dfc9d');
+          addWanted(2);
+          toast('💰 +'+loot+' kr fra kassa! Alarmen går – ut med deg! (+⭐⭐)');
         } else {
-          let loot, stars;
-          if(state.rob.kind==='safe'){
-            loot=800+((Math.random()*700)|0); stars=4; I.shop.cd=180;
-          } else {
-            const base=[0,100,250,500][I.shop.tier];
-            const rand=[0,150,250,400][I.shop.tier];
-            loot=base+((Math.random()*rand)|0);
-            stars=I.guards.length?3:2; I.shop.cd=120;
-          }
+          const base=[0,100,250,500][I.shop.tier];
+          const rand=[0,150,250,400][I.shop.tier];
+          const loot=base+((Math.random()*rand)|0);
+          const stars=I.guards.length?3:2; I.shop.cd=120;
           state.cash+=loot; state.robs++;
           sfx.cash();
           ifloat(I,I.px,I.py-30,'+'+loot+' kr','#9dfc9d');
@@ -1605,6 +1677,11 @@ function renderInterior(){
     ctx.fillText('DISK: RAN m/ HAGLE = tilfeldig kjøretøy 🔑',I.counter.x+I.counter.w/2,I.counter.y-8);
     ctx.font='16px sans-serif';
   }
+  if(I.shop.type==='mekker'||I.shop.type==='lege'){
+    ctx.font='bold 11px sans-serif';ctx.fillStyle='#ffcf6b';
+    ctx.fillText('DISK: RAN krever SMG+ 💰',I.counter.x+I.counter.w/2,I.counter.y-8);
+    ctx.font='16px sans-serif';
+  }
   // pris-lapp over hver stasjon/hylle med varer
   ctx.font='bold 10px sans-serif';
   for(const sh of I.shelves){
@@ -1612,6 +1689,14 @@ function renderInterior(){
     const it=sh.item;
     let lbl, col='#9dfc9d';
     if(it==='nade'){ lbl='💣 GRANAT 150 kr'; col='#ffcf6b'; }
+    else if(it==='heal'||it==='medkit'){
+      lbl = it==='heal' ? '❤️ FULL HP: 950 kr' : '💊 MEDKIT: 1800 kr ('+state.medkits+'/3)';
+      ctx.fillStyle='#503d4a';
+      ctx.fillRect(sh.x,sh.y,sh.w,sh.h);
+      ctx.font='16px sans-serif';ctx.fillStyle='#fff';
+      ctx.fillText(it==='heal'?'❤️':'💊',sh.x+sh.w/2,sh.y+27);
+      ctx.font='bold 10px sans-serif';
+    }
     else if(it==='motor'||it==='panser'){
       const lvl=state.carUp[it];
       lbl=(it==='motor'?'⚙️ MOTOR':'🛡 PANSER')+(lvl>=3?' – MAKS 🚀':' NIVÅ '+(lvl+1)+': '+UPG[it][lvl]+' kr');
@@ -1712,7 +1797,7 @@ function drawShops(){
       let lbl;
       if(sh.type==='våpen') lbl = state.owned[0] ? 'GATA: AMMO 100 kr' : 'GATA: PISTOL 250 kr';
       else if(sh.type==='mekker') lbl = 'MEKKER\'N – gå inn';
-      else if(sh.type==='lege') lbl = state.hp<100 ? 'LEGE: FULL HP 950 kr' : 'MEDKIT 1800 kr ('+state.medkits+'/3)';
+      else if(sh.type==='lege') lbl = 'LEGEN – gå inn';
       else if(sh.type==='kjøretøy') lbl = 'KJØRETØYBUTIKKEN – gå inn';
       else if(sh.type==='våpenbutikk') lbl = 'VÅPENBUTIKKEN – gå inn';
       else if(sh.type==='politi') lbl = 'POLITISTASJONEN – gå inn 👀';
@@ -1732,7 +1817,7 @@ function tryAction(){
   if(sh){
     if(sh.type==='våpen') buyStreet();
     else if(sh.type==='mekker') enterInterior(sh);
-    else if(sh.type==='lege') legeAction();
+    else if(sh.type==='lege') enterInterior(sh);
     else if(sh.type==='butikk' && !sh.open) toast('🔒 STENGT. Prøv en annen butikk!');
     else enterInterior(sh);
     return;
@@ -1810,7 +1895,7 @@ function updatePed(p,dt){
       p.state='down'; p.ktimer=3+Math.random()*2;
       p.vx=Math.cos(p.a); // ikke brukt til noe farlig – bare tegning
       sparks(p.x,p.y,4);
-      if(c===state.pcar){ addWanted(1); toast('⭐ Politiet så deg!'); }
+      if(c===state.pcar){ if(state.pedHeatCd<=0) toast('⭐ Politiet så deg!'); pedHeat(); }
       c.v*=0.75;
     }
   }
@@ -1824,6 +1909,11 @@ function updatePed(p,dt){
 function addWanted(n){
   state.wanted=clamp(state.wanted+n,0,10);
   state.wantedCalm=0;
+}
+function pedHeat(){ // stjerner fra å skade fotgjengere – nedkjølt så spray/mosing ikke hopper til maks
+  if(state.pedHeatCd>0) return;
+  state.pedHeatCd=2.0;
+  addWanted(1);
 }
 function copHeat(n){ // stjerner fra å ramme/skyte/vrake politi – ÉN felles nedkjøling
   if(state.copHeatCd>0) return;   // hindrer at ett sammenstøt stabler flere stjerner
@@ -2456,7 +2546,7 @@ function updateHUD(){
       if(it!==null) lbl='KJØP';
       else if(I.shop.type==='våpenbutikk') lbl = nearC?'AMMO' : nearS?'RAN!' : 'UT';
       else if(I.shop.type==='politi') lbl = nearC?'BESTIKK' : nearS?'RAN!' : 'UT';
-      else if(I.shop.type==='mekker') lbl='UT';
+
       else lbl = nearC?'RAN!':'UT';
     }
     else if(state.mode==='car') lbl='UT';
@@ -2482,6 +2572,7 @@ function frame(ts){
   if(actionQueued){ actionQueued=false; tryAction(); }
   state.nadeCd=Math.max(0,state.nadeCd-dt);
   state.copHeatCd=Math.max(0,state.copHeatCd-dt);
+  state.pedHeatCd=Math.max(0,state.pedHeatCd-dt);
   state.shellCd=Math.max(0,state.shellCd-dt);
   if(nadeQueued){ nadeQueued=false; tryNade(); }
 
