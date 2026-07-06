@@ -908,7 +908,8 @@ function updateBullets(dt){
         if(c===state.pcar||c.role==='wreck') continue;
         if(dist(b.x,b.y,c.x,c.y)<20){
           const dmg=b.dmg+((Math.random()*6)|0);
-          c.hp-=dmg; sparks(b.x,b.y,4);
+          c.hp-=dmg; c.pHitT=state.time;
+          sparks(b.x,b.y,4);
           dmgFloat(b.x,b.y-14,'-'+dmg,'#ffd54a');
           if(c.role==='police'||c.role==='military') copHeat(1);
           if(c.role==='traffic') addWanted(state.wanted<1?1:0);
@@ -987,6 +988,7 @@ function explodeOut(x,y,byPlayer){
       dmgFloat(c.x,c.y-14,'-'+dmg,'#ffd54a');
       const kb=Math.atan2(c.y-y,c.x-x);
       c.v+= (c.role==='player'?60:120)*Math.cos(angDiff(kb,c.h));
+      if(byPlayer){ c.pHitT=state.time; }
       if(byPlayer && (c.role==='police'||c.role==='military')) copHeat(1);
     }
   }
@@ -1482,17 +1484,23 @@ function updateInterior(dt,inp){
     let gsp=0;
     if(d>170) gsp=105; else if(d<100) gsp=-70;
     let ma=a;
-    if(g.dodgeT>0){ g.dodgeT-=dt; ma=g.dodge; gsp=Math.max(gsp,110); }
+    const frontBlocked=rectBlock(g.x+Math.cos(a)*24, g.y+Math.sin(a)*24, 8);
+    if(g.dodgeT>0){
+      g.dodgeT-=dt; ma=g.dodge;
+      if(frontBlocked) g.dodgeT=Math.max(g.dodgeT,0.15); // følg veggen til det er fritt frem
+      gsp=Math.max(gsp,105);
+    }
     const gx=clamp(g.x+Math.cos(ma)*gsp*dt,20,I.w-20);
     const gy=clamp(g.y+Math.sin(ma)*gsp*dt,20,I.h-20);
     let moved=false;
     if(!rectBlock(gx,g.y,8)){ if(Math.abs(gx-g.x)>0.05) moved=true; g.x=gx; }
     if(!rectBlock(g.x,gy,8)){ if(Math.abs(gy-g.y)>0.05) moved=true; g.y=gy; }
-    if(!moved && gsp>0 && !(g.dodgeT>0)){
-      // sitter fast bak disk/hylle: løp RUNDT i stedet for å stange!
-      g.dodge=a+(Math.random()<0.5?1:-1)*Math.PI/2;
-      g.dodgeT=0.55+Math.random()*0.3;
-    }
+    if(!moved && gsp>0){
+      if(g.side===undefined || (g.stFail||0)>2){ g.side=Math.random()<0.5?1:-1; g.stFail=0; }
+      if(g.dodgeT>0){ g.side*=-1; g.stFail=(g.stFail||0)+1; } // sperret begge veier → snu
+      g.dodge=a+g.side*Math.PI/2;
+      g.dodgeT=0.5;
+    } else if(moved && !frontBlocked){ g.dodgeT=0; g.stFail=0; }
     g.cd-=dt;
     if(g.cd<=0 && d<330){
       if(g.wpn==='hagle'){
@@ -2142,6 +2150,7 @@ function carCollisions(dt){
           if(a===state.pcar||b===state.pcar){
             sfx.crash();
             const mine=(a===state.pcar)?a:b, other=(a===state.pcar)?b:a;
+            other.pHitT=state.time;
             if(other.role==='police'||other.role==='military') copHeat(1);
             a.v*=0.55; b.v*=0.55;
             if(state.carUp.motor>=3){ // 🚀 bare én vei: FREMOVER
@@ -2600,10 +2609,17 @@ function frame(ts){
       if(c.hp<=0){ c.role='wreck'; c.v=0; c.color='#3a3a40'; }
     } else if(c.role==='police'){
       updatePolice(c,dt);
-      if(c.hp<=0){ c.role='wreck'; c.v=0; c.color='#3a3a40'; copHeat(1); }
+      if(c.hp<=0){
+        c.role='wreck'; c.v=0; c.color='#3a3a40';
+        if(state.time-(c.pHitT||-99)<4) copHeat(1); // bare hvis DU sto bak
+      }
     } else if(c.role==='military'){
       updateTank(c,dt);
-      if(c.hp<=0){ explodeOut(c.x,c.y,false); c.role='wreck'; c.v=0; c.color='#2f352c'; copHeat(1); }
+      if(c.hp<=0){
+        explodeOut(c.x,c.y,false);
+        c.role='wreck'; c.v=0; c.color='#2f352c';
+        if(state.time-(c.pHitT||-99)<4) copHeat(1);
+      }
     }
   }
   carCollisions(dt);
