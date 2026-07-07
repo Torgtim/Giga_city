@@ -355,7 +355,7 @@ const state = {
   hp:100, hurtCd:0, ko:false,
   gun:{ammo:0}, owned:[false,false,false,false,false], curW:0, shootCd:0, ammoMsgCd:0,
   nades:0, nadeCd:0, robs:0, medkits:0,
-  copHeatCd:0, pedHeatCd:0, shellCd:0, eatCd:0,
+  copHeatCd:0, pedHeatCd:0, shellCd:0, eatCd:0, loddCd:0,
   bling:false, capColor:'#2f6fd0',
   vehTokens:{atv:0,heli:0,jet:0,tank:0},
   carUp:{motor:0,panser:0},
@@ -1226,10 +1226,12 @@ function buyShelfItem(item){
     return;
   }
   if(item==='lodd'){
+    if(state.loddCd>0){ toast('🎫 Loddselgeren: «Rolig nå! Ett om gangen.» ('+Math.ceil(state.loddCd)+' s)'); return; }
     if(state.cash>=50){
-      state.cash-=50;
+      state.cash-=50; state.loddCd=15;
       const r=Math.random();
-      if(r<0.02){ state.cash+=500; sfx.cash(); toast('🎫 LODD: JACKPOT!! +500 kr!! 🎉🎉'); }
+      if(r<0.02){ state.cash+=5000; sfx.cash(); setTimeout(()=>sfx.cash(),150); setTimeout(()=>sfx.cash(),300);
+        toast('🎫🎉 JAAACKPOT!!! +5000 KR!!! 🎉🎉🎉'); }
       else if(r<0.10){ state.cash+=100; sfx.cash(); toast('🎫 Lodd: +100 kr! Ikke verst!'); }
       else toast('🎫 Lodd: «Dessverre, prøv igjen.» Klassiker.');
     } else toast('🎫 Lodd koster 50 kr.');
@@ -1239,15 +1241,15 @@ function buyShelfItem(item){
     if(state.cash>=25){
       state.cash-=25;
       state.capColor=CAR_COLORS[(Math.random()*CAR_COLORS.length)|0];
-      toast('🧢 Ny caps i tilfeldig farge! Helt unødvendig. Helt rå.');
+      toast('🧢 Ny caps i tilfeldig farge! Fresh.');
     } else toast('🧢 Caps koster 25 kr.');
     return;
   }
   if(item==='ring'){
     if(state.bling){ toast('💍 Du glitrer allerede.'); return; }
     if(state.cash>=800){ state.cash-=800; state.bling=true;
-      sfx.cash(); toast('💍 Gullring! Gjør ABSOLUTT ingenting. Ser RÅ ut ved siden av pengene dine.'); }
-    else toast('💍 Gullringen koster 800 kr. Ubrukelig OG dyr.');
+      sfx.cash(); toast('💍 Gullring! Ren luksus. Byen VET hvem du er nå.'); }
+    else toast('💍 Gullringen koster 800 kr. Luksus koster.');
     return;
   }
   if(item==='kjede'){
@@ -1792,9 +1794,9 @@ function renderInterior(){
     else if(it==='snack'){ lbl='🥤 BRUS & BOLLE 30 kr (+8 HP)'; }
     else if(it==='mat'){ lbl='🛒 MATKURV 60 kr (+20 HP)'; }
     else if(it==='banan'){ lbl='🍌 BANAN 5 kr (+2 HP)'; }
-    else if(it==='lodd'){ lbl='🎫 LODD 50 kr (føler du deg heldig?)'; col='#ffcf6b'; }
+    else if(it==='lodd'){ lbl='🎫 LODD 50 kr – JACKPOT 5000!'; col='#ffcf6b'; }
     else if(it==='caps'){ lbl='🧢 CAPS 25 kr (ny farge!)'; col='#c9c9c9'; }
-    else if(it==='ring'){ lbl= state.bling?'💍 EID ✔':'💍 GULLRING 800 kr (100% ubrukelig)'; col='#ffd54a'; }
+    else if(it==='ring'){ lbl= state.bling?'💍 EID ✔':'💍 GULLRING 800 kr (ren luksus)'; col='#ffd54a'; }
     else if(it==='kjede'){ lbl= state.capColor==='#ffd54a'?'👑 EID ✔':'👑 GULLKJEDE 400 kr (swag)'; col='#ffd54a'; }
     else if(typeof it==='number'){
       if(state.owned[it]){ lbl=WEAPONS[it].name+' – EID ✔'; col='#8fa0b5'; }
@@ -1935,8 +1937,10 @@ function exitCar(forced){
   const side=[[-1,0],[1,0],[0,-1],[0,1]];
   let placed=false;
   for(const s of side){
-    const ex=c.x+Math.cos(c.h+Math.PI/2)*s[0]*40 + Math.cos(c.h)*s[1]*50;
-    const ey=c.y+Math.sin(c.h+Math.PI/2)*s[0]*40 + Math.sin(c.h)*s[1]*50;
+    let ex=c.x+Math.cos(c.h+Math.PI/2)*s[0]*40 + Math.cos(c.h)*s[1]*50;
+    let ey=c.y+Math.sin(c.h+Math.PI/2)*s[0]*40 + Math.sin(c.h)*s[1]*50;
+    ex=clamp(ex, T*0.6, WORLD_W-T*0.6); // aldri utenfor gå-sonen (kant-fiks!)
+    ey=clamp(ey, T*0.6, WORLD_H-T*0.6);
     if(tileAtPx(ex,ey)!==BLDG){ state.px=ex; state.py=ey; placed=true; break; }
   }
   if(!placed && c.fly && !forced){
@@ -2253,6 +2257,10 @@ function updateFoot(dt,inp){
   const nx=state.px+vx*sp*dt, ny=state.py+vy*sp*dt;
   if(tileAtPx(nx,state.py)!==BLDG && nx>T*0.5 && nx<WORLD_W-T*0.5) state.px=nx;
   if(tileAtPx(state.px,ny)!==BLDG && ny>T*0.5 && ny<WORLD_H-T*0.5) state.py=ny;
+  // SIKKERHETSNETT: har noe (bil-exit, knockback) dyttet deg utenfor gå-sonen,
+  // dras du inn igjen i stedet for å fryse fast på kartkanten.
+  state.px=clamp(state.px, T*0.55, WORLD_W-T*0.55);
+  state.py=clamp(state.py, T*0.55, WORLD_H-T*0.55);
 }
 
 // ============================================================
@@ -2671,6 +2679,7 @@ function frame(ts){
   state.copHeatCd=Math.max(0,state.copHeatCd-dt);
   state.pedHeatCd=Math.max(0,state.pedHeatCd-dt);
   state.eatCd=Math.max(0,state.eatCd-dt);
+  state.loddCd=Math.max(0,state.loddCd-dt);
   state.shellCd=Math.max(0,state.shellCd-dt);
   if(nadeQueued){ nadeQueued=false; tryNade(); }
 
