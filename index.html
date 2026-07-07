@@ -51,10 +51,15 @@
   #btnGas{background:rgba(80,200,90,.25);}
   #btnBrake{background:rgba(220,80,80,.25);}
   #btnShoot{background:rgba(255,180,60,.28);font-size:20px;}
+  #btnsX{position:fixed;right:104px;bottom:calc(160px + env(safe-area-inset-bottom));
+    display:none;flex-direction:column-reverse;gap:10px;z-index:6;}
   #hpwrap{width:170px;height:13px;background:rgba(0,0,0,.55);border-radius:7px;
     border:1px solid rgba(255,255,255,.3);overflow:hidden;}
   #hpfill{height:100%;width:100%;background:linear-gradient(90deg,#3ecf5a,#7ee787);
     border-radius:6px;transition:width .15s;}
+  #armwrap{width:170px;height:9px;background:rgba(0,0,0,.55);border-radius:5px;
+    border:1px solid rgba(255,255,255,.3);overflow:hidden;margin-top:2px;}
+  #armfill{height:100%;width:0%;background:linear-gradient(90deg,#7f96b5,#b9c9de);border-radius:4px;}
   #ammo{font-size:14px;font-weight:bold;color:#ffcf6b;pointer-events:auto;cursor:pointer;
     background:rgba(0,0,0,.4);padding:3px 8px;border-radius:6px;display:inline-block;}
 
@@ -87,6 +92,7 @@
 <div class="hud" id="hudTop">
   <div id="money">0 kr</div>
   <div id="hpwrap"><div id="hpfill"></div></div>
+  <div id="armwrap" style="display:none"><div id="armfill"></div></div>
   <div id="ammo" style="display:none">🔫 0</div>
   <div id="mission">…</div>
 </div>
@@ -98,11 +104,13 @@
 <div class="btns" id="btns">
   <div class="btn" id="btnAction">INN/UT</div>
   <div class="btn" id="btnShoot">🔫</div>
+  <div class="btn" id="btnGas">GASS</div>
+  <div class="btn" id="btnBrake">BREMS</div>
+</div>
+<div id="btnsX">
   <div class="btn" id="btnNade" style="display:none">💣</div>
   <div class="btn" id="btnMed" style="display:none">💊</div>
   <div class="btn" id="btnVeh" style="display:none">🚗</div>
-  <div class="btn" id="btnGas">GASS</div>
-  <div class="btn" id="btnBrake">BREMS</div>
 </div>
 
 <div id="bigMsg"><span></span></div>
@@ -233,6 +241,7 @@ function setupTouch(){
   if(!isTouch) return;
   stickEl.style.display='block';
   document.getElementById('btns').style.display='grid';
+  document.getElementById('btnsX').style.display='flex';
 
   window.addEventListener('touchstart', ev=>{
     for(const t of ev.changedTouches){
@@ -370,7 +379,7 @@ const state = {
   bustT:0, jobsDone:0,
   hp:100, hurtCd:0, ko:false,
   gun:{ammo:0}, owned:WEAPONS.map(()=>false), curW:0, shootCd:0, ammoMsgCd:0,
-  heliGun:false, hadHeli:false,
+  heliGun:false, hadHeli:false, armor:0,
   nades:0, nadeCd:0, robs:0, medkits:0,
   copHeatCd:0, pedHeatCd:0, shellCd:0, eatCd:0, loddCd:0,
   bling:false, capColor:'#2f6fd0',
@@ -741,6 +750,23 @@ function poofFootCop(i){
   copFeet.splice(i,1);
 }
 
+// ---------- Anti-vegg: alt som havner i en bygning dyttes ut ----------
+function unstuckFromBuilding(o){
+  if(tileAtPx(o.x,o.y)!==BLDG) return;
+  for(let r=10;r<=150;r+=10){
+    for(let k=0;k<12;k++){
+      const a=k/12*Math.PI*2;
+      const nx=clamp(o.x+Math.cos(a)*r, T, WORLD_W-T);
+      const ny=clamp(o.y+Math.sin(a)*r, T, WORLD_H-T);
+      if(tileAtPx(nx,ny)!==BLDG){
+        o.x=nx; o.y=ny;
+        if(o.v!==undefined) o.v*=0.3;
+        return;
+      }
+    }
+  }
+}
+
 // ---------- Felles bilfysikk med kollisjon mot bygg ----------
 function carSolidAt(x,y){ const t=tileAtPx(x,y); return t===BLDG; }
 function moveCarPhysics(c,dt){
@@ -1104,8 +1130,18 @@ function hurtPlayer(dmg,kind){
   if(state.ko) return;
   if(state.hurtCd>0 && kind==='car') return;
   if(kind==='car') state.hurtCd=0.6;
+  if(state.armor>0){ // rustningen tar støyten først!
+    const abs=Math.min(state.armor,dmg);
+    state.armor-=abs; dmg-=abs;
+    const fx=playerX(), fy=playerY();
+    if(state.interior){ ifloat(state.interior,state.interior.px,state.interior.py-22,'-'+abs+' 🛡','#b9c9de'); }
+    else dmgFloat(fx,fy-22,'-'+abs+' 🛡','#b9c9de');
+    if(state.armor<=0) toast('🛡 Rustningen er ØDELAGT! Kjøp ny hos rustningssmeden.');
+  }
+  if(dmg<=0) return;
   state.hp-=dmg;
-  dmgFloat(playerX(),playerY()-22,'-'+dmg,'#ff6b6b');
+  if(state.interior) ifloat(state.interior,state.interior.px,state.interior.py-34,'-'+dmg,'#ff6b6b');
+  else dmgFloat(playerX(),playerY()-34,'-'+dmg,'#ff6b6b');
   if(state.hp<=0) doKO();
 }
 function doKO(reason){
@@ -1139,6 +1175,8 @@ function initShops(){
       if(h<0.08){ shops.push({x,y,type:'våpen',cd:0}); }        // gatelanger
       else if(h<0.115){ shops.push({x,y,type:'mekker',cd:0,name:"MEKKER'N"}); } // verksted
       else if(h<0.15){ shops.push({x,y,type:'lege',cd:0,name:'LEGEN'}); } // lege
+      else if(h<0.175){ shops.push({x,y,type:'rustning',cd:0,name:'RUSTNINGSSMEDEN'}); }
+      else if(h<0.20){ shops.push({x,y,type:'bensin',cd:0,name:'BENSINSTASJONEN'}); }
       else{
         const h2=hash2(bx*7+3,by*9+5);
         const tier = h2<0.5?1 : h2<0.85?2 : 3;
@@ -1154,6 +1192,8 @@ function initShops(){
   shops.push({x:34*T+T/2, y:26*T+T/2, type:'våpen', cd:0});   // gatelanger
   shops.push({x:42*T+T/2, y:34*T+T/2, type:'mekker', cd:0, name:"MEKKER'N"});
   shops.push({x:34*T+T/2, y:42*T+T/2, type:'lege', cd:0, name:'LEGEN'});
+  shops.push({x:42*T+T/2, y:18*T+T/2, type:'rustning', cd:0, name:'RUSTNINGSSMEDEN'});
+  shops.push({x:26*T+T/2, y:18*T+T/2, type:'bensin', cd:0, name:'BENSINSTASJONEN'});
   shops.push({x:18*T+T/2, y:50*T+T/2, type:'kjøretøy', cd:0, open:true,
     name:'KJØRETØYBUTIKKEN', robTime:6});
   // BANKEN – monsteret. Én i hele byen.
@@ -1173,10 +1213,10 @@ function initShops(){
       if(dist(shops[i].x,shops[i].y,shops[j].x,shops[j].y)<60){ shops.splice(i,1); break; }
     }
   }
-  // åpningstider: unikt per butikk – 65% åpne på dagen, 45% åpne om natta
+  // åpningstider: HELT tilfeldig hver runde – 65% åpne på dagen, 45% om natta
   for(const sh of shops){
-    sh.openDay   = hash2(sh.x*0.013+1, sh.y*0.017+2) < 0.65;
-    sh.openNight = hash2(sh.x*0.019+3, sh.y*0.011+5) < 0.45;
+    sh.openDay   = Math.random() < 0.65;
+    sh.openNight = Math.random() < 0.45;
     if(!sh.openDay && !sh.openNight) sh.openDay=true; // ingen butikk er ALLTID stengt
   }
 }
@@ -1185,7 +1225,9 @@ function nightNow(){
   return 0.5*(0.5-0.5*Math.cos(Math.PI*2*phase)) > 0.25;
 }
 function isShopOpen(sh){
-  if(sh.type==='politi') return true; // politiet sover aldri
+  if(sh.type==='politi') return true;  // politiet sover aldri
+  if(sh.type==='lege') return true;    // sykehus er DØGNÅPNE. De er jo sykehus.
+  if(sh.type==='våpen') return true;   // gatelangere jobber når som helst 🌙
   return nightNow() ? sh.openNight : sh.openDay;
 }
 function nearestShop(maxD){
@@ -1247,6 +1289,15 @@ function buyShelfItem(item){
     if(state.cash>=150){ state.cash-=150; state.nades++;
       sfx.cash(); toast('💣 +1 håndgranat! Kast med G / 💣-knappen.'); }
     else toast('Granater koster 150 kr per stk.');
+    return;
+  }
+  if(item==='arm1'||item==='arm2'||item==='arm3'){
+    const A={arm1:{v:50,p:400,n:'Lett vest'},arm2:{v:100,p:900,n:'Tung vest'},arm3:{v:150,p:1600,n:'Elitepanser'}}[item];
+    if(state.armor>=A.v){ toast('🛡 Du har allerede like god (eller bedre) rustning på!'); return; }
+    if(state.cash>=A.p){
+      state.cash-=A.p; state.armor=A.v;
+      sfx.cash(); toast('🛡 '+A.n+' på! +'+A.v+' rustning. Den tar støyten før helsa – men ryker for godt.');
+    } else toast('🛡 '+A.n+' koster '+A.p+' kr.');
     return;
   }
   if(item==='heal'){
@@ -1397,6 +1448,15 @@ function enterInterior(shop){
     I.safe={x:w-70,y:18,w:48,h:32}; // BESLAGSROMMET
     const spots=[[40,120],[w-40,170],[60,h-80],[w-70,h-70],[w/2-120,h-64]];
     for(const p of spots) I.guards.push({x:p[0],y:p[1],hp:60,cd:1+Math.random(),active:false,wpn:'pistol',cop:true});
+  } else if(shop.type==='bensin'){
+    for(let r=0;r<2;r++)for(let c2=0;c2<2;c2++){
+      I.shelves.push({x:60+c2*(w-230), y:150+r*84, w:110, h:26});
+    }
+    I.shelves[0].item='snack'; I.shelves[1].item='lodd';
+  } else if(shop.type==='rustning'){
+    I.shelves.push({x:w/2-155,y:168,w:100,h:42,item:'arm1'});
+    I.shelves.push({x:w/2-50, y:168,w:100,h:42,item:'arm2'});
+    I.shelves.push({x:w/2+55, y:168,w:100,h:42,item:'arm3'});
   } else if(shop.type==='lege'){
     I.shelves.push({x:w/2-150,y:168,w:130,h:42,item:'heal'});
     I.shelves.push({x:w/2+20, y:168,w:130,h:42,item:'medkit'});
@@ -1436,6 +1496,8 @@ function enterInterior(shop){
   else if(shop.type==='politi') toast('🚔 POLITISTASJONEN. Disken «ordner» stjerner for 1000 kr… og beslagsrommet er RETT der 👀');
   else if(shop.type==='mekker') toast('🔧 MEKKER\'N. Velg stasjon: ⚙️ MOTOR eller 🛡 PANSER!');
   else if(shop.type==='lege') toast('🏥 LEGEN. Velg stasjon: ❤️ FULL HP eller 💊 MEDKIT. (Kassa er visst full…)');
+  else if(shop.type==='rustning') toast('🛡 RUSTNINGSSMEDEN! Ekstra liv oppå helsa – men rustning kan IKKE heales. Ødelagt = kjøp ny.');
+  else if(shop.type==='bensin') toast('⛽ BENSINSTASJONEN! Kiosk her inne – og pumpa ute fikser bilen (kjør inntil og trykk E/PUMPE).');
   else if(shop.type==='kjøretøy') toast('🏎 KJØRETØYBUTIKKEN! Tanks, jagerfly, heli, ATV… Ran nøkkelskapet med HAGLE = tilfeldig kjøretøy 😈');
   else if(shop.type==='bank') toast('🏦 BANKEN. Lån ved disken… eller HVELVET bakerst: 15 000 kr og 24 VAKTER. Lykke til. Seriøst.');
   else{
@@ -1480,6 +1542,53 @@ function spawnVehicle(){
   const info={atv:'ATV – liten og spretten!',heli:'HELIKOPTER – flyr over ALT!',
     jet:'JAGERFLY – vanvittig fart!',tank:'TANKS – F/🔫 fyrer KANONEN!'};
   toast('🚗 Spawnet: '+info[id]);
+}
+function startPump(){
+  const c=state.pcar, mx=c.maxhp||100;
+  if(state.pump){ state.pump=null; toast('⛽ Pumpe avbrutt.'); return; }
+  if(c.hp < mx-0.5){
+    state.pump={mode:'fix', tick:0};
+    toast('⛽ REPARERER: 20 kr per 5 HP. Stå helt stille!');
+  } else if(c.pMax){
+    state.pump={mode:'store', t:5};
+    toast('⛽📦 LAGRER kjøretøyet i inventaret (450 kr)… stå stille i 5 sekunder!');
+  } else toast('⛽ Bilen er frisk – og vanlige biler kan ikke lagres, bare KJØPTE kjøretøy.');
+}
+function updatePump(dt){
+  if(!state.pump) return;
+  const c=state.pcar;
+  let near=false;
+  if(state.mode==='car' && c){
+    for(const sh of shops){ if(sh.type==='bensin' && dist(c.x,c.y,sh.x,sh.y)<115){ near=true; break; } }
+  }
+  if(!near || Math.abs(c.v)>14){ state.pump=null; toast('⛽ Avbrutt – du forlot pumpa!'); return; }
+  if(state.pump.mode==='fix'){
+    state.pump.tick-=dt;
+    const mx=c.maxhp||100;
+    if(state.pump.tick<=0){
+      state.pump.tick=0.35;
+      if(c.hp>=mx){ state.pump=null;
+        toast(c.pMax?'⛽ Full HP! Trykk PUMPE igjen for å LAGRE kjøretøyet (450 kr).':'⛽ Full HP!'); }
+      else if(state.cash>=20){ state.cash-=20; c.hp=Math.min(mx,c.hp+5);
+        if(Math.random()<0.35) dmgFloat(c.x,c.y-28,'+5 ❤️','#9dfc9d'); }
+      else { state.pump=null; toast('⛽ Tom for penger!'); }
+    }
+  } else { // lagring
+    state.pump.t-=dt;
+    if(state.pump.t<=0){
+      state.pump=null;
+      if(state.cash>=450){
+        state.cash-=450;
+        state.vehTokens[c.kind]=(state.vehTokens[c.kind]||0)+1;
+        if(c.kind==='heli') state.hadHeli=true;
+        const idx=cars.indexOf(c);
+        state.mode='foot'; state.px=c.x; state.py=c.y; state.pcar=null;
+        if(idx>=0) cars.splice(idx,1);
+        sfx.cash();
+        toast('⛽📦 '+c.kind.toUpperCase()+' lagret i inventaret! Spawn igjen med V/🚗. (-450 kr)');
+      } else toast('⛽ Lagring koster 450 kr – du har ikke råd.');
+    }
+  }
 }
 function legeAction(){
   if(state.hp<100){
@@ -1542,7 +1651,7 @@ function interiorAction(){
       toast('🏦 LÅN: +2000 kr! Banken trekker 300 kr hvert 50. sek til de har fått 5000. BLODRENTER 💀');
       return;
     }
-    if(I.shop.type==='mekker'||I.shop.type==='lege'){
+    if(I.shop.type==='mekker'||I.shop.type==='lege'||I.shop.type==='rustning'||I.shop.type==='bensin'){
       if(state.rob) return;
       if(!hasWeapon()){ toast('🔫 Du trenger et våpen for å rane her!'); return; }
       if(I.shop.cd>0){ toast('🕳 Kassa er tom etter forrige ran…'); return; }
@@ -1858,7 +1967,7 @@ function renderInterior(){
     ctx.font='14px sans-serif';
     ctx.fillText('🔒',I.safe.x+I.safe.w/2,I.safe.y+21);
     ctx.font='bold 10px sans-serif';ctx.fillStyle='#ffd54a';
-    ctx.fillText(I.shop.type==='politi'?'BESLAG 🔫':'SAFE',I.safe.x+I.safe.w/2,I.safe.y+I.safe.h+12);
+    ctx.fillText(I.shop.type==='politi'?'BESLAG 🔫':I.shop.type==='bank'?'HVELV 💰':'SAFE',I.safe.x+I.safe.w/2,I.safe.y+I.safe.h+12);
   }
   // lapper over disken
   if(I.shop.type==='våpenbutikk'){
@@ -1871,9 +1980,14 @@ function renderInterior(){
     ctx.fillText('DISK: RAN m/ HAGLE = tilfeldig kjøretøy 🔑',I.counter.x+I.counter.w/2,I.counter.y-8);
     ctx.font='16px sans-serif';
   }
-  if(I.shop.type==='mekker'||I.shop.type==='lege'){
+  if(I.shop.type==='mekker'||I.shop.type==='lege'||I.shop.type==='rustning'||I.shop.type==='bensin'){
     ctx.font='bold 11px sans-serif';ctx.fillStyle='#ffcf6b';
     ctx.fillText('DISK: RAN (krever våpen) 💰',I.counter.x+I.counter.w/2,I.counter.y-8);
+    ctx.font='16px sans-serif';
+  }
+  if(I.shop.type==='bank'){
+    ctx.font='bold 11px sans-serif';ctx.fillStyle='#9dfc9d';
+    ctx.fillText('DISK: LÅN 2000 kr (krever 0⭐ og 1500 kr) 🏦',I.counter.x+I.counter.w/2,I.counter.y-8);
     ctx.font='16px sans-serif';
   }
   // pris-lapp over hver stasjon/hylle med varer
@@ -1883,6 +1997,15 @@ function renderInterior(){
     const it=sh.item;
     let lbl, col='#9dfc9d';
     if(it==='nade'){ lbl='💣 GRANAT 150 kr'; col='#ffcf6b'; }
+    else if(it==='arm1'||it==='arm2'||it==='arm3'){
+      const A={arm1:['Lett vest 400 kr','+50'],arm2:['Tung vest 900 kr','+100'],arm3:['Elitepanser 1600 kr','+150']}[it];
+      lbl='🛡 '+A[0]+' ('+A[1]+')';
+      ctx.fillStyle='#3d4450';
+      ctx.fillRect(sh.x,sh.y,sh.w,sh.h);
+      ctx.font='16px sans-serif';ctx.fillStyle='#fff';
+      ctx.fillText('🛡',sh.x+sh.w/2,sh.y+27);
+      ctx.font='bold 10px sans-serif';
+    }
     else if(it==='heal'||it==='medkit'){
       lbl = it==='heal' ? '❤️ FULL HP: 950 kr' : '💊 MEDKIT: 1800 kr ('+state.medkits+'/3)';
       ctx.fillStyle='#503d4a';
@@ -1952,7 +2075,8 @@ function renderInterior(){
     ctx.restore();
     ctx.font='bold 10px sans-serif';
     ctx.fillStyle= g.cop ? '#9fc4ff' : g.wpn==='handcannon' ? '#ff5252' : '#ff9d6b';
-    ctx.fillText((g.cop?'POLITI ':g.wpn==='handcannon'?'🔥HAND CANNON ':g.wpn==='smg'?'SMG-VAKT ':g.wpn==='hagle'?'💪VAKT ':'VAKT ')+Math.max(0,g.hp|0),g.x,g.y-16);
+    const glx=clamp(g.x,52,I.w-52); // etiketten skal aldri klippes av kanten!
+    ctx.fillText((g.cop?'POLITI ':g.wpn==='handcannon'?'🔥H.CANNON ':g.wpn==='smg'?'SMG ':g.wpn==='hagle'?'💪VAKT ':'VAKT ')+Math.max(0,g.hp|0),glx,g.y-16);
   }
   // spiller
   ctx.save();ctx.translate(I.px,I.py);ctx.rotate(state.pdir+Math.PI/2);
@@ -2003,7 +2127,7 @@ function drawShops(){
     ctx.globalAlpha=closed?0.4:1;
     const ico = sh.type==='våpen'?'🔫' : sh.type==='mekker'?'🔧' : sh.type==='våpenbutikk'?'🏬'
       : sh.type==='politi'?'🚔' : sh.type==='lege'?'🏥' : sh.type==='kjøretøy'?'🏎'
-      : sh.type==='bank'?'🏦'
+      : sh.type==='bank'?'🏦' : sh.type==='rustning'?'🛡' : sh.type==='bensin'?'⛽'
       : sh.tier===3?'💎' : sh.tier===2?'🛒':'🏪';
     ctx.fillText(ico,sx,sy+6);
     ctx.globalAlpha=1;
@@ -2017,6 +2141,8 @@ function drawShops(){
       else if(sh.type==='lege') lbl = 'LEGEN – gå inn';
       else if(sh.type==='kjøretøy') lbl = 'KJØRETØYBUTIKKEN – gå inn';
       else if(sh.type==='bank') lbl = 'BANKEN – lån… eller hvelvet 👀';
+      else if(sh.type==='rustning') lbl = 'RUSTNINGSSMEDEN – gå inn';
+      else if(sh.type==='bensin') lbl = state.mode==='car' ? 'PUMPE: fiks 20kr/5HP · lagre 450kr' : 'BENSIN – kiosk inn';
       else if(sh.type==='våpenbutikk') lbl = 'VÅPENBUTIKKEN – gå inn';
       else if(sh.type==='politi') lbl = 'POLITISTASJONEN – gå inn 👀';
       else lbl = sh.cd>0 ? 'ÅPEN (tom kasse)' : 'ÅPEN – gå inn';
@@ -2030,7 +2156,19 @@ function drawShops(){
 function tryAction(){
   if(state.ko) return;
   if(state.interior){ interiorAction(); return; }
-  if(state.mode==='car'){ exitCar(false); return; }
+  if(state.mode==='car'){
+    // BENSINSTASJON: pumpe-service rett fra bilen!
+    let bs=null;
+    for(const sh of shops){
+      if(sh.type!=='bensin') continue;
+      if(dist(state.pcar.x,state.pcar.y,sh.x,sh.y)<100){ bs=sh; break; }
+    }
+    if(bs){
+      if(!isShopOpen(bs)){ toast('⛽ Pumpa er STENGT nå.'); return; }
+      startPump(); return;
+    }
+    exitCar(false); return;
+  }
   const sh=nearestShop(52);
   if(sh){
     if(sh.type!=='politi' && !isShopOpen(sh)){
@@ -2726,7 +2864,8 @@ function drawMinimap(){
     sh.type==='våpen'?'#ffcf6b' : sh.type==='mekker'?'#5fd6d0'
     : sh.type==='våpenbutikk'?'#ff9040' : sh.type==='politi'?'#5b8dff'
     : sh.type==='lege'?'#ff6b9d' : sh.type==='kjøretøy'?'#8affc1'
-    : sh.type==='bank'?'#ffd700' : '#c88be0',
+    : sh.type==='bank'?'#ffd700' : sh.type==='rustning'?'#b9c9de'
+    : sh.type==='bensin'?'#ffb15e' : '#c88be0',
     (sh.type==='våpenbutikk'||sh.type==='politi'||sh.type==='kjøretøy'||sh.type==='bank')?3.4:2);
   if(state.jobMarker) blip(state.jobMarker.x,state.jobMarker.y,'#57e389',3.4);
   if(state.job) blip(state.job.target.x,state.job.target.y, state.job.phase==='hent'?'#4f9dff':'#ffd54a',3.4);
@@ -2769,6 +2908,10 @@ function updateHUD(){
   fill.style.width=hp+'%';
   fill.style.background = hp>50 ? 'linear-gradient(90deg,#3ecf5a,#7ee787)'
     : hp>25 ? 'linear-gradient(90deg,#e5b83a,#ffd54a)' : 'linear-gradient(90deg,#e5533a,#ff7b5a)';
+  const aw=document.getElementById('armwrap');
+  if(state.armor>0){ aw.style.display='block';
+    document.getElementById('armfill').style.width=clamp(state.armor/150*100,0,100)+'%'; }
+  else aw.style.display='none';
   const am=document.getElementById('ammo');
   const vTok=state.vehTokens.atv+state.vehTokens.heli+state.vehTokens.jet+state.vehTokens.tank;
   if(hasWeapon()||state.nades>0||state.medkits>0||vTok>0){
@@ -2804,10 +2947,16 @@ function updateHUD(){
       if(it!==null) lbl='KJØP';
       else if(I.shop.type==='våpenbutikk') lbl = nearC?'AMMO' : nearS?'RAN!' : 'UT';
       else if(I.shop.type==='politi') lbl = nearC?'BESTIKK' : nearS?'RAN!' : 'UT';
+      else if(I.shop.type==='bank') lbl = nearC?'LÅN' : nearS?'RAN!' : 'UT';
 
       else lbl = nearC?'RAN!':'UT';
     }
-    else if(state.mode==='car') lbl='UT';
+    else if(state.mode==='car'){
+      lbl='UT';
+      for(const sh of shops){
+        if(sh.type==='bensin' && dist(state.pcar.x,state.pcar.y,sh.x,sh.y)<100){ lbl='PUMPE'; break; }
+      }
+    }
     else{
       const sh=nearestShop(52);
       if(sh) lbl = sh.type==='våpen' ? 'KJØP' : 'GÅ INN';
@@ -2837,6 +2986,7 @@ function frame(ts){
   if(nadeQueued){ nadeQueued=false; tryNade(); }
 
   for(const sh of shops) if(sh.cd>0) sh.cd-=dt;
+  updatePump(dt);
   if(state.loan){
     state.loan.t-=dt;
     if(state.loan.t<=0){
@@ -2860,11 +3010,16 @@ function frame(ts){
   // oppdater spiller
   if(state.mode==='car') updatePlayerCar(dt,inp);
   else updateFoot(dt,inp);
+  if(state.mode==='foot' && tileAtPx(state.px,state.py)===BLDG){
+    const o={x:state.px,y:state.py}; unstuckFromBuilding(o);
+    state.px=o.x; state.py=o.y;
+  }
 
   // trafikk / politi
   for(let i=cars.length-1;i>=0;i--){
     const c=cars[i];
     if(c.dmgCd>0) c.dmgCd-=dt;
+    if(!c.fly) unstuckFromBuilding(c); // aldri mer tanks-i-vegg 😭🤣
     if(c.role==='traffic'){
       updateTraffic(c,dt);
       if(dist(c.x,c.y,playerX(),playerY())>2600){ cars.splice(i,1); }
@@ -2977,11 +3132,17 @@ function frame(ts){
 
   // hp-linje for spillerbil
   if(state.mode==='car'){
-    const hp=clamp(state.pcar.hp,0,100);
+    const mx=state.pcar.maxhp||100;
+    const hp=clamp(state.pcar.hp,0,mx), pct=hp/mx;
     ctx.fillStyle='rgba(0,0,0,0.5)';
     ctx.fillRect(W/2-62, H-24, 124, 10);
-    ctx.fillStyle= hp>50?'#6bbf6b': hp>25?'#e5b83a':'#e55b3a';
-    ctx.fillRect(W/2-60, H-22, 120*hp/100, 6);
+    ctx.fillStyle= pct>0.5?'#6bbf6b': pct>0.25?'#e5b83a':'#e55b3a';
+    ctx.fillRect(W/2-60, H-22, 120*pct, 6);
+    if(state.pump && state.pump.mode==='store'){
+      const sx=state.pcar.x-state.camX, sy=state.pcar.y-state.camY-44;
+      ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(sx-32,sy,64,9);
+      ctx.fillStyle='#8affc1';ctx.fillRect(sx-30,sy+2,60*(1-state.pump.t/5),5);
+    }
   }
 
   drawMinimap();
