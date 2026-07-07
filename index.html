@@ -51,7 +51,7 @@
   #btnGas{background:rgba(80,200,90,.25);}
   #btnBrake{background:rgba(220,80,80,.25);}
   #btnShoot{background:rgba(255,180,60,.28);font-size:20px;}
-  #btnsX{position:fixed;right:104px;bottom:calc(160px + env(safe-area-inset-bottom));
+  #btnsX{position:fixed;right:172px;bottom:calc(160px + env(safe-area-inset-bottom));
     display:none;flex-direction:column-reverse;gap:10px;z-index:6;}
   #hpwrap{width:170px;height:13px;background:rgba(0,0,0,.55);border-radius:7px;
     border:1px solid rgba(255,255,255,.3);overflow:hidden;}
@@ -381,7 +381,7 @@ const state = {
   gun:{ammo:0}, owned:WEAPONS.map(()=>false), curW:0, shootCd:0, ammoMsgCd:0,
   heliGun:false, hadHeli:false, armor:0,
   nades:0, nadeCd:0, robs:0, medkits:0,
-  copHeatCd:0, pedHeatCd:0, shellCd:0, eatCd:0, loddCd:0,
+  copHeatCd:0, pedHeatCd:0, boomHeatCd:0, shellCd:0, eatCd:0, loddCd:0,
   bling:false, capColor:'#2f6fd0',
   vehTokens:{atv:0,heli:0,jet:0,tank:0},
   carUp:{motor:0,panser:0},
@@ -767,6 +767,26 @@ function unstuckFromBuilding(o){
   }
 }
 
+function carWedged(c){ // front eller bak kilt inn i en bygning?
+  const fx=c.x+Math.cos(c.h)*c.l*0.45, fy=c.y+Math.sin(c.h)*c.l*0.45;
+  const bx=c.x-Math.cos(c.h)*c.l*0.45, by=c.y-Math.sin(c.h)*c.l*0.45;
+  return tileAtPx(fx,fy)===BLDG || tileAtPx(bx,by)===BLDG;
+}
+function ejectCar(c){ // finn nærmeste plass der HELE bilen er fri
+  for(let r=12;r<=180;r+=12){
+    for(let k=0;k<12;k++){
+      const a=k/12*Math.PI*2;
+      const nx=clamp(c.x+Math.cos(a)*r, T*1.2, WORLD_W-T*1.2);
+      const ny=clamp(c.y+Math.sin(a)*r, T*1.2, WORLD_H-T*1.2);
+      const fx=nx+Math.cos(c.h)*c.l*0.45, fy=ny+Math.sin(c.h)*c.l*0.45;
+      const bx=nx-Math.cos(c.h)*c.l*0.45, by=ny-Math.sin(c.h)*c.l*0.45;
+      if(tileAtPx(nx,ny)!==BLDG && tileAtPx(fx,fy)!==BLDG && tileAtPx(bx,by)!==BLDG){
+        c.x=nx; c.y=ny; c.v*=0.2; return;
+      }
+    }
+  }
+}
+
 // ---------- Felles bilfysikk med kollisjon mot bygg ----------
 function carSolidAt(x,y){ const t=tileAtPx(x,y); return t===BLDG; }
 function moveCarPhysics(c,dt){
@@ -805,8 +825,13 @@ function updatePlayerCar(dt,inp){
   if(joy.active && jm>0.25){
     const des=Math.atan2(joy.y,joy.x);
     const diff=angDiff(des,c.h);
-    steer=clamp(diff*1.9,-1,1);
-    throttle=Math.max(throttle, Math.min(1,jm));
+    if(c.kind==='tank'){
+      steer=clamp(diff*2.2,-1,1);
+      if(Math.abs(diff)<0.55) throttle=Math.max(throttle, Math.min(1,jm)); // snurr først, kjør så
+    } else {
+      steer=clamp(diff*1.9,-1,1);
+      throttle=Math.max(throttle, Math.min(1,jm));
+    }
   }
   if(throttle>0) c.v += accel*dt*throttle;
   if(brake>0){
@@ -817,7 +842,11 @@ function updatePlayerCar(dt,inp){
   if(inp.handbrake) c.v -= c.v*3.2*dt;
   c.v=clamp(c.v,-150,maxV);
   const grip = inp.handbrake? 3.6 : 2.7;
-  c.h += steer*grip*dt*clamp(Math.abs(c.v)/120,0,1)*Math.sign(c.v||1);
+  if(c.kind==='tank'){
+    c.h += steer*1.35*dt; // beltedrift: full sving selv i ro (A/D og joystick)
+  } else {
+    c.h += steer*grip*dt*clamp(Math.abs(c.v)/120,0,1)*Math.sign(c.v||1);
+  }
   moveCarPhysics(c,dt);
   if(c.hp<35 && Math.random()<0.3) smoke(c.x,c.y);
   if(c.hp<=0) wreckPlayerCar();
@@ -826,6 +855,7 @@ function updatePlayerCar(dt,inp){
 function wreckPlayerCar(){
   const c=state.pcar;
   c.role='wreck'; c.v=0; c.color='#3a3a40';
+  c.fly=false; // vraket faller ned (og dyttes til nærmeste gate av anti-vegg)
   for(let i=0;i<14;i++) smoke(c.x+(Math.random()-0.5)*30, c.y+(Math.random()-0.5)*30);
   sfx.crash();
   exitCar(true);
@@ -1059,7 +1089,7 @@ function explodeOut(x,y,byPlayer){
     const d=dist(x,y,state.px,state.py);
     if(d<R) hurtPlayer(Math.round(45*(1-d/R))+5,'boom');
   }
-  if(byPlayer) addWanted(1);
+  if(byPlayer) boomHeat();
 }
 function explodeIn(I,x,y){
   boomSound();
@@ -1085,10 +1115,24 @@ function updateNades(dt){ // utendørs
     const n=grenades[i];
     if(n.space!=='out'){ grenades.splice(i,1); continue; }
     n.t-=dt;
-    if(n.shell){ // kanonskudd: rett frem, smeller på vegg eller tid
+    if(n.shell){ // kanonskudd: smeller på vegg, tid – OG PÅ ALT DET TREFFER!
       const nx=n.x+n.vx*dt, ny=n.y+n.vy*dt;
-      if(tileAtPx(nx,ny)===BLDG || n.t<=0){
-        explodeOut(n.x,n.y,n.byPlayer!==false);
+      let hit = tileAtPx(nx,ny)===BLDG || n.t<=0;
+      if(!hit) for(const c of cars){
+        if(c.role==='wreck') continue;
+        if(n.byPlayer!==false && c===state.pcar) continue;   // ikke din egen tanks
+        if(n.byPlayer===false && c.role==='military') continue; // ikke fiendens egne
+        if(dist(nx,ny,c.x,c.y)<22){ hit=true; break; }
+      }
+      if(!hit && n.byPlayer!==false){
+        for(const p of peds){ if(p.state==='walk' && dist(nx,ny,p.x,p.y)<12){ hit=true; break; } }
+        if(!hit) for(const f of copFeet){ if(dist(nx,ny,f.x,f.y)<12){ hit=true; break; } }
+      }
+      if(!hit && n.byPlayer===false && state.mode==='foot'){
+        if(dist(nx,ny,state.px,state.py)<12) hit=true;
+      }
+      if(hit){
+        explodeOut(nx,ny,n.byPlayer!==false);
         grenades.splice(i,1); continue;
       }
       n.x=nx; n.y=ny;
@@ -1454,9 +1498,9 @@ function enterInterior(shop){
     }
     I.shelves[0].item='snack'; I.shelves[1].item='lodd';
   } else if(shop.type==='rustning'){
-    I.shelves.push({x:w/2-155,y:168,w:100,h:42,item:'arm1'});
-    I.shelves.push({x:w/2-50, y:168,w:100,h:42,item:'arm2'});
-    I.shelves.push({x:w/2+55, y:168,w:100,h:42,item:'arm3'});
+    I.shelves.push({x:w/2-65,y:132,w:130,h:38,item:'arm1'});
+    I.shelves.push({x:w/2-65,y:200,w:130,h:38,item:'arm2'});
+    I.shelves.push({x:w/2-65,y:268,w:130,h:38,item:'arm3'});
   } else if(shop.type==='lege'){
     I.shelves.push({x:w/2-150,y:168,w:130,h:42,item:'heal'});
     I.shelves.push({x:w/2+20, y:168,w:130,h:42,item:'medkit'});
@@ -2276,6 +2320,11 @@ function pedHeat(){ // stjerner fra å skade fotgjengere – nedkjølt så spray
   state.pedHeatCd=2.0;
   addWanted(1);
 }
+function boomHeat(){ // stjerner fra eksplosjoner – nedkjølt, så kanon/RPG-spam ikke stabler
+  if(state.boomHeatCd>0) return;
+  state.boomHeatCd=2.5;
+  addWanted(1);
+}
 function copHeat(n){ // stjerner fra å ramme/skyte/vrake politi – ÉN felles nedkjøling
   if(state.copHeatCd>0) return;   // hindrer at ett sammenstøt stabler flere stjerner
   state.copHeatCd=3.0;
@@ -2980,6 +3029,7 @@ function frame(ts){
   state.nadeCd=Math.max(0,state.nadeCd-dt);
   state.copHeatCd=Math.max(0,state.copHeatCd-dt);
   state.pedHeatCd=Math.max(0,state.pedHeatCd-dt);
+  state.boomHeatCd=Math.max(0,state.boomHeatCd-dt);
   state.eatCd=Math.max(0,state.eatCd-dt);
   state.loddCd=Math.max(0,state.loddCd-dt);
   state.shellCd=Math.max(0,state.shellCd-dt);
@@ -3019,7 +3069,13 @@ function frame(ts){
   for(let i=cars.length-1;i>=0;i--){
     const c=cars[i];
     if(c.dmgCd>0) c.dmgCd-=dt;
-    if(!c.fly) unstuckFromBuilding(c); // aldri mer tanks-i-vegg 😭🤣
+    if(!c.fly){ // aldri mer tanks-i-vegg 😭🤣 (sjekker HELE bilen nå)
+      if(tileAtPx(c.x,c.y)===BLDG){ ejectCar(c); c.wallT=0; }
+      else if(carWedged(c)){
+        c.wallT=(c.wallT||0)+dt;
+        if(c.wallT>0.5){ ejectCar(c); c.wallT=0; }
+      } else c.wallT=0;
+    }
     if(c.role==='traffic'){
       updateTraffic(c,dt);
       if(dist(c.x,c.y,playerX(),playerY())>2600){ cars.splice(i,1); }
