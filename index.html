@@ -1398,7 +1398,7 @@ function interiorAction(){
     if(I.shop.type==='politi'){ bribeCop(); return; }          // korrupt betjent
     if(I.shop.type==='mekker'||I.shop.type==='lege'){
       if(state.rob) return;
-      if(!hasSMGplus()){ toast('🔫 Du trenger SMG eller bedre for å rane her!'); return; }
+      if(!hasWeapon()){ toast('🔫 Du trenger et våpen for å rane her!'); return; }
       if(I.shop.cd>0){ toast('🕳 Kassa er tom etter forrige ran…'); return; }
       state.rob={shop:I.shop, t:4, total:4, ax:cx, ay:cy, kind:'tjeneste'};
       I.clerk.panic=true; wakeGuards(I);
@@ -1451,6 +1451,14 @@ function guardDown(I,g){
   state.cash+=drop;
   ifloat(I,g.x,g.y-30,'💫 vakt ned! +'+drop+' kr','#9fc4ff');
 }
+function guardLOS(x1,y1,x2,y2){ // fri siktlinje gjennom rommet?
+  const d=dist(x1,y1,x2,y2), steps=Math.ceil(d/12);
+  for(let i=1;i<steps;i++){
+    const t=i/steps;
+    if(rectBlock(x1+(x2-x1)*t, y1+(y2-y1)*t, -2)) return false;
+  }
+  return true;
+}
 function rectBlock(x,y,r){ // kolliderer sirkel (x,y,8) med interiør-rektangler?
   const I=state.interior;
   const rects=[I.counter,...I.shelves];
@@ -1481,8 +1489,12 @@ function updateInterior(dt,inp){
     if(g.hp<=0 || !g.active || state.ko) continue;
     const d=dist(g.x,g.y,I.px,I.py);
     const a=Math.atan2(I.py-g.y,I.px-g.x);
-    let gsp=0;
-    if(d>170) gsp=105; else if(d<100) gsp=-70;
+    const los=guardLOS(g.x,g.y,I.px,I.py);
+    let gsp;
+    if(!los) gsp=105;                 // ser deg ikke? Da JAKTER vi – rundt disken!
+    else if(d>170) gsp=105;
+    else if(d<100) gsp=-70;
+    else gsp=0;
     let ma=a;
     const frontBlocked=rectBlock(g.x+Math.cos(a)*24, g.y+Math.sin(a)*24, 8);
     if(g.dodgeT>0){
@@ -1502,7 +1514,7 @@ function updateInterior(dt,inp){
       g.dodgeT=0.5;
     } else if(moved && !frontBlocked){ g.dodgeT=0; g.stFail=0; }
     g.cd-=dt;
-    if(g.cd<=0 && d<330){
+    if(g.cd<=0 && d<330 && los){
       if(g.wpn==='hagle'){
         for(let k=0;k<4;k++){
           const aa=a+(Math.random()-0.5)*0.5;
@@ -1687,7 +1699,7 @@ function renderInterior(){
   }
   if(I.shop.type==='mekker'||I.shop.type==='lege'){
     ctx.font='bold 11px sans-serif';ctx.fillStyle='#ffcf6b';
-    ctx.fillText('DISK: RAN krever SMG+ 💰',I.counter.x+I.counter.w/2,I.counter.y-8);
+    ctx.fillText('DISK: RAN (krever våpen) 💰',I.counter.x+I.counter.w/2,I.counter.y-8);
     ctx.font='16px sans-serif';
   }
   // pris-lapp over hver stasjon/hylle med varer
@@ -2150,8 +2162,8 @@ function carCollisions(dt){
           if(a===state.pcar||b===state.pcar){
             sfx.crash();
             const mine=(a===state.pcar)?a:b, other=(a===state.pcar)?b:a;
-            other.pHitT=state.time;
-            if(other.role==='police'||other.role==='military') copHeat(1);
+            // INGEN stjerner fra kollisjoner: under jakt er det POLITIET som rammer DEG.
+            // Stjerner krever nå en bevisst handling (skyte/granat/kapre/rane/meie ned folk).
             a.v*=0.55; b.v*=0.55;
             if(state.carUp.motor>=3){ // 🚀 bare én vei: FREMOVER
               mine.v*=1.62;
