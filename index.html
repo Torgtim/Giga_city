@@ -392,7 +392,7 @@ const state = {
   nades:0, nadeCd:0, robs:0, medkits:0,
   copHeatCd:0, pedHeatCd:0, boomHeatCd:0, shellCd:0, eatCd:0, loddCd:0,
   bling:false, capColor:'#2f6fd0',
-  vehTokens:{atv:0,heli:0,jet:0,tank:0},
+  vehTokens:{atv:0,heli:0,jet:0,tank:0}, selVeh:null,
   carUp:{motor:0,panser:0},
   interior:null,
   rob:null, // {shop, t}
@@ -1577,12 +1577,27 @@ const VEHS=[
   {id:'jet', name:'Jagerfly',   cost:8000},
   {id:'tank',name:'Tanks',      cost:9000},
 ];
+const VEH_ICON={atv:'🛵',heli:'🚁',jet:'✈️',tank:'🪖'};
+const VEH_ORDER=['atv','heli','jet','tank'];
+// hvilket kjøretøy plasseres ut nå? (klikk 🚗 for å bla)
+function selectedVeh(){
+  if(state.selVeh && state.vehTokens[state.selVeh]>0) return state.selVeh;
+  return VEH_ORDER.find(k=>state.vehTokens[k]>0) || null;
+}
+function cycleSelVeh(){
+  const have=VEH_ORDER.filter(k=>state.vehTokens[k]>0);
+  if(have.length===0){ toast('🚗 Ingen kjøretøy på lager. Kjøp/rane i KJØRETØYBUTIKKEN 🏎'); return; }
+  const cur=selectedVeh();
+  const i=have.indexOf(cur);
+  state.selVeh=have[(i+1)%have.length];
+  const v=VEHS.find(x=>x.id===state.selVeh);
+  toast(VEH_ICON[state.selVeh]+' Neste utplassering: '+v.name+' (x'+state.vehTokens[state.selVeh]+')');
+}
 function spawnVehicle(){
   if(!state.running||state.ko) return;
   if(state.interior){ toast('🚗 Gå ut av bygningen først!'); return; }
   if(state.mode==='car'){ toast('🚗 Gå ut av kjøretøyet du sitter i først!'); return; }
-  const order=['tank','jet','heli','atv'];
-  const id=order.find(k=>state.vehTokens[k]>0);
+  const id=selectedVeh();
   if(!id){ toast('🚗 Ingen kjøretøy på lager – kjøp (eller ran!) i KJØRETØYBUTIKKEN 🏎'); return; }
   state.vehTokens[id]--;
   if(id==='heli') state.hadHeli=true;
@@ -2990,8 +3005,14 @@ function updateHUD(){
     let t2=hasWeapon()? '🔫 '+curWpn().name+' · '+state.gun.ammo : '';
     if(state.nades>0) t2+=(t2?' · ':'')+'💣'+state.nades;
     if(state.medkits>0) t2+=(t2?' · ':'')+'💊'+state.medkits;
-    if(vTok>0) t2+=(t2?' · ':'')+'🚗'+vTok;
-    am.textContent=t2;
+    if(vTok>0){ const sel=selectedVeh();
+      t2+=(t2?' · ':'')+'<span id="vehSel" style="cursor:pointer">'+(sel?VEH_ICON[sel]:'🚗')+(sel?state.vehTokens[sel]:vTok)+'</span>'; }
+    am.innerHTML=t2;
+    const vs=document.getElementById('vehSel');
+    if(vs){
+      vs.onclick=(e)=>{ e.stopPropagation(); cycleSelVeh(); };
+      vs.ontouchend=(e)=>{ e.stopPropagation(); e.preventDefault(); cycleSelVeh(); };
+    }
   }
   const nb=document.getElementById('btnNade');
   if(nb){ const show=state.nades>0 && isTouch;
@@ -3012,7 +3033,8 @@ function updateHUD(){
   const vb=document.getElementById('btnVeh');
   if(vb){ const show=vSum>0 && isTouch;
     vb.style.display=show?'flex':'none';
-    if(show) vb.textContent='🚗'+vSum; }
+    const sel=selectedVeh();
+    if(show) vb.textContent=(sel?VEH_ICON[sel]:'🚗')+(sel?state.vehTokens[sel]:vSum); }
   // kontekstuell handlingsknapp på mobil
   const ab=document.getElementById('btnAction');
   if(ab){
