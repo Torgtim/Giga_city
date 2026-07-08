@@ -1069,15 +1069,16 @@ function explodeOut(x,y,byPlayer){
   for(let i=0;i<12;i++) smoke(x+(Math.random()-0.5)*40, y+(Math.random()-0.5)*40);
   parts.push({x,y,vx:0,vy:0,t:0,life:0.22,color:'rgba(255,170,60,0.85)',r:26});
   const R=100;
+  let hitSomething=false; // stjerner kun hvis eksplosjonen faktisk TREFFER noen!
   for(const p of peds){
     if(p.state!=='walk') continue;
     if(dist(x,y,p.x,p.y)<R){ p.state='down'; p.ktimer=1.2; p.shot=true;
-      dmgFloat(p.x,p.y-16,'💫','#ffd54a'); }
+      dmgFloat(p.x,p.y-16,'💫','#ffd54a'); hitSomething=true; }
   }
   for(let i=copFeet.length-1;i>=0;i--){
     if(dist(x,y,copFeet[i].x,copFeet[i].y)<R){
       dmgFloat(copFeet[i].x,copFeet[i].y-16,'💫','#9fc4ff');
-      poofFootCop(i);
+      poofFootCop(i); hitSomething=true;
     }
   }
   for(const c of cars){
@@ -1092,13 +1093,14 @@ function explodeOut(x,y,byPlayer){
       c.v+= (c.role==='player'?60:120)*Math.cos(angDiff(kb,c.h));
       if(byPlayer){ c.pHitT=state.time; }
       if(byPlayer && (c.role==='police'||c.role==='military')) copHeat(1);
+      if(c!==state.pcar) hitSomething=true;
     }
   }
   if(state.mode==='foot'){
     const d=dist(x,y,state.px,state.py);
     if(d<R) hurtPlayer(Math.round(45*(1-d/R))+5,'boom');
   }
-  if(byPlayer) boomHeat();
+  if(byPlayer && hitSomething) boomHeat(); // tomme skudd i løse lufta gir INGEN stjerne
 }
 function explodeIn(I,x,y){
   boomSound();
