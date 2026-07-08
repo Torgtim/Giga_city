@@ -136,7 +136,8 @@
       ⭐ 1-2★ bot · 3★ fengsel (<b>mister våpnene!</b>) · 4★ fengsel ELLER slutten · 5★ fotpoliti · <b>6★+ MILITÆRET: tanks → helikoptre → jagerfly → BOMBEFLY på 10★!</b> (Skadeskutte tanks kan KAPRES 🪖)<br>
       🏦 <b>BANKEN</b>: lån 2000 kr (blodrenter: 300 kr/50 sek til 5000 er betalt!) – eller ran HVELVET: <b>15 000 kr og 24 vakter</b> 💀 · Nye leker: <b>Minigun, RPG, heli-gatling</b> hos mekkeren · Butikker har nå <b>åpningstider</b> (dag/natt)!<br>
       🏎 <b>KJØRETØYBUTIKKEN</b>: Tanks, jagerfly, heli, ATV – dyrt, men spawnes hos deg med <b>V</b>/🚗. Ran nøkkelskapet (krever hagle) = tilfeldig kjøretøy! · 🏥 <b>LEGEN</b>: full HP 950 kr, medkit 1800 kr (H/💊) · 🔧 Mekker'n har nå egne stasjoner inne<br>
-      ☠️ <b>HARDCORE:</b> Blir du utslått er det GAME OVER – restart fra null!<br><br>
+      ☠️ <b>HARDCORE:</b> Blir du utslått er det GAME OVER – restart fra null!<br>
+      💾 <b>Auto-lagring:</b> Lukk/refresh fanen fritt – fremdriften ligger trygt. KUN døden nullstiller.<br><br>
       <b>PC:</b> WASD/piler • <b>E</b> handling • <b>F</b>/mus skyt • <b>G</b> granat • <b>H</b> medkit • <b>V</b> spawn kjøretøy • Q/1-5 våpen<br>
       <b>Mobil:</b> joystick = pek dit du vil • knapper: handling, 🔫, gass, brems
     </div>
@@ -1191,6 +1192,7 @@ function hurtPlayer(dmg,kind){
 function doKO(reason){
   if(state.ko) return;
   state.ko=true; state.hp=0;
+  clearSave(); // hardcore: død = null progress. Vil du resette? Gå inn i banken 😂
   sfx.fail();
   bigMsg('UTSLÅTT!');
   if(state.pcar && state.pcar.role==='player'){ state.pcar.role='parked'; state.pcar.v=0; }
@@ -1408,7 +1410,6 @@ function buyShelfItem(item){
   }
   if(item==='heligun'){
     if(state.heliGun){ toast('🚁 Gatling er allerede montert på heli-lisensen din!'); return; }
-    if(!state.hadHeli){ toast('🚁 Skaff deg et helikopter først (kjøretøybutikken)!'); return; }
     if(state.cash>=2500){ state.cash-=2500; state.heliGun=true;
       sfx.cash(); toast('🚁🔫 HELI-GATLING montert! ALLE helikoptre du flyr har den nå. Hold F/🔫 og regn ned bly!'); }
     else toast('🚁 Heli-gatling koster 2500 kr.');
@@ -2059,8 +2060,7 @@ function renderInterior(){
       ctx.font='bold 10px sans-serif';
     }
     else if(it==='heligun'){
-      lbl = state.heliGun ? '🚁🔫 GATLING – MONTERT ✔'
-        : state.hadHeli ? '🚁🔫 HELI-GATLING 2500 kr' : '🚁🔫 GATLING (krever heli!)';
+      lbl = state.heliGun ? '🚁🔫 GATLING – MONTERT ✔' : '🚁🔫 HELI-GATLING 2500 kr';
       col= state.heliGun ? '#8fa0b5' : '#9dfc9d';
       ctx.fillStyle='#3d4450';
       ctx.fillRect(sh.x,sh.y,sh.w,sh.h);
@@ -2312,23 +2312,29 @@ function updatePed(p,dt){
 
 // ---------- Etterlysning / politi ----------
 function addWanted(n){
+  if(n<=0) return; // +0 skal IKKE nullstille nedtellingen (gammel snik-bug!)
   state.wanted=clamp(state.wanted+n,0,10);
   state.wantedCalm=0;
 }
-function pedHeat(){ // stjerner fra å skade fotgjengere – nedkjølt så spray/mosing ikke hopper til maks
+// STJERNETAK (GTA-style): å slåss mot politi som ALLEREDE jakter deg
+// er ikke en uendelig trapp. Over takene kreves RAN, kapring og banken!
+function pedHeat(){ // sivile ofre: klatrer maks til 5★
   if(state.pedHeatCd>0) return;
   state.pedHeatCd=2.0;
+  if(state.wanted>=5){ state.wantedCalm=0; return; }
   addWanted(1);
 }
-function boomHeat(){ // stjerner fra eksplosjoner – nedkjølt, så kanon/RPG-spam ikke stabler
+function boomHeat(){ // eksplosjoner: klatrer maks til 4★
   if(state.boomHeatCd>0) return;
   state.boomHeatCd=2.5;
+  if(state.wanted>=4){ state.wantedCalm=0; return; }
   addWanted(1);
 }
-function copHeat(n){ // stjerner fra å ramme/skyte/vrake politi – ÉN felles nedkjøling
-  if(state.copHeatCd>0) return;   // hindrer at ett sammenstøt stabler flere stjerner
+function copHeat(n){ // politikamp: klatrer maks til 3★ – de jakter deg jo allerede!
+  if(state.copHeatCd>0) return;
   state.copHeatCd=3.0;
-  addWanted(Math.min(n,1));       // maks +1 stjerne av gangen fra kontakt med politi
+  if(state.wanted>=3){ state.wantedCalm=0; return; }
+  addWanted(Math.min(n,1));
 }
 function updateWanted(dt){
   if(state.ko) return;
@@ -2363,9 +2369,10 @@ function updateWanted(dt){
   // fjern hvis rolig
   let copNear=false;
   for(const c of cops) if(dist(c.x,c.y,playerX(),playerY())<650) copNear=true;
-  if(state.wanted>0 && !copNear){
+  if(state.wanted>0){
     state.wantedCalm+=dt;
-    if(state.wantedCalm>9){ state.wanted--; state.wantedCalm=0;
+    const need = copNear ? 25 : 9; // holder du deg unna trøbbel, faller stjernene ALLTID
+    if(state.wantedCalm>need){ state.wanted--; state.wantedCalm=0;
       if(state.wanted===0){ toast('😮‍💨 Politiet ga opp jakten.');
         for(let i=cars.length-1;i>=0;i--) if(cars[i].role==='police') cars.splice(i,1);
       }
@@ -3206,6 +3213,65 @@ function frame(ts){
 }
 requestAnimationFrame(frame);
 
+// ---------- Auto-lagring 💾 ----------
+const SAVE_KEY='gigacity_save_v1';
+function storageOK(){
+  try{ localStorage.setItem('__gc_t','1'); localStorage.removeItem('__gc_t'); return true; }
+  catch(e){ return false; }
+}
+function saveGame(){
+  if(!state.running || state.ko) return;
+  try{
+    const d={cash:state.cash, hp:state.hp, armor:state.armor, wanted:state.wanted,
+      owned:state.owned, curW:state.curW, ammo:state.gun.ammo,
+      nades:state.nades, medkits:state.medkits,
+      veh:state.vehTokens, carUp:state.carUp,
+      heliGun:state.heliGun, hadHeli:state.hadHeli,
+      bling:state.bling, cap:state.capColor,
+      jobs:state.jobsDone, robs:state.robs, time:state.time,
+      loan:state.loan,
+      px:playerX(), py:playerY(),
+      // sitter du i et KJØPT kjøretøy, legges det trygt i inventaret ved lagring
+      pendVeh:(state.mode==='car' && state.pcar && state.pcar.pMax)? state.pcar.kind : null};
+    localStorage.setItem(SAVE_KEY, JSON.stringify(d));
+  }catch(e){}
+}
+function loadGame(){
+  try{
+    const raw=localStorage.getItem(SAVE_KEY);
+    if(!raw) return false;
+    const d=JSON.parse(raw);
+    state.cash=d.cash|0; state.hp=clamp(+d.hp||100,1,100); state.armor=d.armor|0;
+    state.wanted=clamp(d.wanted|0,0,10);
+    state.owned=WEAPONS.map((_,i)=>!!(d.owned&&d.owned[i]));
+    state.curW=clamp(d.curW|0,0,N_W-1);
+    state.gun.ammo=Math.max(0,d.ammo|0); state.nades=clamp(d.nades|0,0,9);
+    state.medkits=clamp(d.medkits|0,0,3);
+    if(d.veh) state.vehTokens=Object.assign({atv:0,heli:0,jet:0,tank:0}, d.veh);
+    if(d.carUp) state.carUp=Object.assign({motor:0,panser:0}, d.carUp);
+    state.heliGun=!!d.heliGun; state.hadHeli=!!d.hadHeli;
+    state.bling=!!d.bling;
+    if(d.cap) state.capColor=d.cap;
+    state.jobsDone=d.jobs|0; state.robs=d.robs|0;
+    state.time=+d.time||0;
+    state.loan=d.loan||null;
+    if(typeof d.px==='number' && typeof d.py==='number'){
+      state.px=clamp(d.px,T,WORLD_W-T);
+      state.py=clamp(d.py,T,WORLD_H-T);
+      if(tileAtPx(state.px,state.py)===BLDG){
+        const o={x:state.px,y:state.py}; unstuckFromBuilding(o);
+        state.px=o.x; state.py=o.y;
+      }
+    }
+    if(d.pendVeh){
+      state.vehTokens[d.pendVeh]=(state.vehTokens[d.pendVeh]||0)+1;
+      if(d.pendVeh==='heli') state.hadHeli=true;
+    }
+    return true;
+  }catch(e){ return false; }
+}
+function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+
 // ---------- Oppstart ----------
 function startGame(){
   if(state.running) return;
@@ -3226,7 +3292,17 @@ function startGame(){
   newJobMarker();
   state.running=true;
   last=performance.now();
-  toast('👋 Velkommen til GIGA CITY! Følg det grønne merket.');
+  const loaded = storageOK() && loadGame();
+  if(loaded){
+    toast('💾 Fremdrift lastet inn! (Dør du, nullstilles ALT. Hardcore er hardcore.)');
+  } else {
+    toast('👋 Velkommen til GIGA CITY! Følg det grønne merket.');
+  }
+  if(storageOK()){
+    setInterval(saveGame, 3000);
+    window.addEventListener('beforeunload', saveGame);
+    document.addEventListener('visibilitychange', ()=>{ if(document.hidden) saveGame(); });
+  }
 }
 document.getElementById('restartBtn').addEventListener('click', ()=>location.reload());
 document.getElementById('restartBtn').addEventListener('touchend', e=>{e.preventDefault();location.reload();},{passive:false});
