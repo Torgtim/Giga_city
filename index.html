@@ -390,7 +390,7 @@ const state = {
   gun:{ammo:0}, owned:WEAPONS.map(()=>false), curW:0, shootCd:0, ammoMsgCd:0,
   heliGun:false, hadHeli:false, armor:0,
   nades:0, nadeCd:0, robs:0, medkits:0,
-  copHeatCd:0, pedHeatCd:0, boomHeatCd:0, shellCd:0, eatCd:0, loddCd:0,
+  copHeatCd:0, pedHeatCd:0, boomHeatCd:0, shellCd:0, eatCd:0, loddCd:0, storeCd:0,
   bling:false, capColor:'#2f6fd0',
   vehTokens:{atv:0,heli:0,jet:0,tank:0}, selVeh:null,
   carUp:{motor:0,panser:0},
@@ -1624,6 +1624,7 @@ function startPump(){
     state.pump={mode:'fix', tick:0};
     toast('⛽ REPARERER: 20 kr per 5 HP. Stå helt stille!');
   } else if(c.pMax){
+    if(state.storeCd>0){ toast('⛽ Pumpa må kjøles ned – '+Math.ceil(state.storeCd/60)+' min igjen før neste lagring.'); return; }
     state.pump={mode:'store', t:5};
     toast('⛽📦 LAGRER kjøretøyet i inventaret (450 kr)… stå stille i 5 sekunder!');
   } else toast('⛽ Bilen er frisk – og vanlige biler kan ikke lagres, bare KJØPTE kjøretøy.');
@@ -1652,7 +1653,7 @@ function updatePump(dt){
     if(state.pump.t<=0){
       state.pump=null;
       if(state.cash>=450){
-        state.cash-=450;
+        state.cash-=450; state.storeCd=360; // 6 min nedkjøling på lagring
         state.vehTokens[c.kind]=(state.vehTokens[c.kind]||0)+1;
         if(c.kind==='heli') state.hadHeli=true;
         const idx=cars.indexOf(c);
@@ -2220,7 +2221,9 @@ function drawShops(){
       else if(sh.type==='våpenbutikk') lbl = 'VÅPENBUTIKKEN – gå inn';
       else if(sh.type==='politi') lbl = 'POLITISTASJONEN – gå inn 👀';
       else lbl = sh.cd>0 ? 'ÅPEN (tom kasse)' : 'ÅPEN – gå inn';
-      ctx.strokeText(lbl,sx,sy-18);ctx.fillText(lbl,sx,sy-18);
+      const tw=ctx.measureText(lbl).width;
+      const lx=clamp(sx, tw/2+8, W-tw/2-8); // aldri utenfor skjermkanten!
+      ctx.strokeText(lbl,lx,sy-18);ctx.fillText(lbl,lx,sy-18);
       ctx.font='20px sans-serif';
     }
   }
@@ -3083,6 +3086,7 @@ function frame(ts){
   state.boomHeatCd=Math.max(0,state.boomHeatCd-dt);
   state.eatCd=Math.max(0,state.eatCd-dt);
   state.loddCd=Math.max(0,state.loddCd-dt);
+  state.storeCd=Math.max(0,state.storeCd-dt);
   state.shellCd=Math.max(0,state.shellCd-dt);
   if(nadeQueued){ nadeQueued=false; tryNade(); }
 
@@ -3277,6 +3281,7 @@ function saveGame(){
       px:playerX(), py:playerY(),
       selVeh:state.selVeh,
       // butikkene HUSKER at du har ranet dem (og åpningstidene sine) – ingen refresh-spam!
+      storeCd:state.storeCd,
       shopCds:shops.map(sh=>Math.ceil(sh.cd||0)),
       hrs:shops.map(sh=>(sh.openDay?1:0)|(sh.openNight?2:0)),
       // sitter du i et KJØPT kjøretøy, legges det trygt i inventaret ved lagring
@@ -3316,6 +3321,7 @@ function loadGame(){
       if(d.pendVeh==='heli') state.hadHeli=true;
     }
     if(d.selVeh) state.selVeh=d.selVeh;
+    state.storeCd=Math.max(0,+d.storeCd||0);
     if(Array.isArray(d.shopCds)){ // butikkene genereres i samme rekkefølge hver gang
       shops.forEach((sh,i)=>{ if(typeof d.shopCds[i]==='number') sh.cd=Math.max(0,d.shopCds[i]); });
     }
