@@ -1901,7 +1901,7 @@ function updateInterior(dt,inp){
           const v=VEHS[(Math.random()*VEHS.length)|0];
           state.vehTokens[v.id]++;
           if(v.id==='heli') state.hadHeli=true;
-          state.cash+=200; I.shop.cd=240; state.robs++;
+          state.cash+=200; I.shop.cd=900; state.robs++; // 15 min – nøkkelskapet må fylles opp!
           sfx.cash();
           ifloat(I,I.px,I.py-30,'🔑 '+v.name+'! +200 kr','#9dfc9d');
           addWanted(3);
@@ -3275,6 +3275,10 @@ function saveGame(){
       jobs:state.jobsDone, robs:state.robs, time:state.time,
       loan:state.loan,
       px:playerX(), py:playerY(),
+      selVeh:state.selVeh,
+      // butikkene HUSKER at du har ranet dem (og åpningstidene sine) – ingen refresh-spam!
+      shopCds:shops.map(sh=>Math.ceil(sh.cd||0)),
+      hrs:shops.map(sh=>(sh.openDay?1:0)|(sh.openNight?2:0)),
       // sitter du i et KJØPT kjøretøy, legges det trygt i inventaret ved lagring
       pendVeh:(state.mode==='car' && state.pcar && state.pcar.pMax)? state.pcar.kind : null};
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
@@ -3310,6 +3314,16 @@ function loadGame(){
     if(d.pendVeh){
       state.vehTokens[d.pendVeh]=(state.vehTokens[d.pendVeh]||0)+1;
       if(d.pendVeh==='heli') state.hadHeli=true;
+    }
+    if(d.selVeh) state.selVeh=d.selVeh;
+    if(Array.isArray(d.shopCds)){ // butikkene genereres i samme rekkefølge hver gang
+      shops.forEach((sh,i)=>{ if(typeof d.shopCds[i]==='number') sh.cd=Math.max(0,d.shopCds[i]); });
+    }
+    if(Array.isArray(d.hrs)){
+      shops.forEach((sh,i)=>{ if(typeof d.hrs[i]==='number'){
+        sh.openDay=!!(d.hrs[i]&1); sh.openNight=!!(d.hrs[i]&2);
+        if(!sh.openDay&&!sh.openNight) sh.openDay=true;
+      }});
     }
     return true;
   }catch(e){ return false; }
