@@ -111,6 +111,7 @@
   <div class="btn" id="btnNade" style="display:none">💣</div>
   <div class="btn" id="btnMed" style="display:none">💊</div>
   <div class="btn" id="btnVeh" style="display:none">🚗</div>
+  <div class="btn" id="btnWpn" style="display:none">🔁</div>
 </div>
 
 <div id="bigMsg"><span></span></div>
@@ -246,6 +247,8 @@ function setupTouch(){
 
   window.addEventListener('touchstart', ev=>{
     for(const t of ev.changedTouches){
+      // trykk på knapper/HUD skal ALDRI spawne joystick (dette ødela våpenbytting!)
+      if(t.target && t.target.closest && t.target.closest('.btn,#ammo,#minimap,#hudTop')) continue;
       if(t.clientX < W*0.45 && !joy.active){
         joy.active=true; joy.id=t.identifier; joy.cx=t.clientX; joy.cy=t.clientY;
         stickEl.style.left=(t.clientX-60)+'px';
@@ -290,6 +293,7 @@ function setupTouch(){
   bind('btnNade',()=>{nadeQueued=true;},null);
   bind('btnMed',()=>{useMedkit();},null);
   bind('btnVeh',()=>{spawnVehicle();},null);
+  bind('btnWpn',()=>{cycleWeapon();},null);
 }
 let nadeQueued=false;
 
@@ -1551,10 +1555,16 @@ function enterInterior(shop){
   }
 }
 function nearShelfItem(I){
+  // NÆRMESTE VINNER: en hylle teller bare hvis den er NÆRMERE enn disken.
+  // (Aldri mer «kjøpte SMG da jeg skulle ha ammo»-katastrofer!)
+  const dC=dist(I.px,I.py, I.counter.x+I.counter.w/2, I.counter.y+I.counter.h/2);
+  let best=null, bd=52;
   for(const sh of I.shelves){
     if(sh.item===undefined) continue;
-    if(dist(I.px,I.py,sh.x+sh.w/2,sh.y+sh.h/2)<52) return sh.item;
+    const dd=dist(I.px,I.py, sh.x+sh.w/2, sh.y+sh.h/2);
+    if(dd<bd){ bd=dd; best=sh.item; }
   }
+  if(best!==null && bd<dC) return best;
   return null;
 }
 const VEHS=[
@@ -2986,6 +2996,13 @@ function updateHUD(){
   if(mb){ const show=state.medkits>0 && isTouch;
     mb.style.display=show?'flex':'none';
     if(show) mb.textContent='💊'+state.medkits; }
+  const wb=document.getElementById('btnWpn');
+  if(wb){
+    const nOwned=state.owned.filter(Boolean).length;
+    const show=nOwned>=2 && isTouch;
+    wb.style.display=show?'flex':'none';
+    if(show) wb.textContent='🔁'+(state.curW+1);
+  }
   const vt=state.vehTokens, vSum=vt.atv+vt.heli+vt.jet+vt.tank;
   const vb=document.getElementById('btnVeh');
   if(vb){ const show=vSum>0 && isTouch;
