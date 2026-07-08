@@ -3005,8 +3005,8 @@ function updateHUD(){
     let t2=hasWeapon()? '🔫 '+curWpn().name+' · '+state.gun.ammo : '';
     if(state.nades>0) t2+=(t2?' · ':'')+'💣'+state.nades;
     if(state.medkits>0) t2+=(t2?' · ':'')+'💊'+state.medkits;
-    if(vTok>0){ const sel=selectedVeh();
-      t2+=(t2?' · ':'')+'<span id="vehSel" style="cursor:pointer">'+(sel?VEH_ICON[sel]:'🚗')+(sel?state.vehTokens[sel]:vTok)+'</span>'; }
+    if(vTok>0){ // hjørnet viser generisk 🚗+antall – spawn-knappen viser det VALGTE kjøretøyet
+      t2+=(t2?' · ':'')+'<span id="vehSel" style="cursor:pointer">🚗'+vTok+'</span>'; }
     am.innerHTML=t2;
     const vs=document.getElementById('vehSel');
     if(vs){
