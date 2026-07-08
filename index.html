@@ -390,7 +390,7 @@ const state = {
   gun:{ammo:0}, owned:WEAPONS.map(()=>false), curW:0, shootCd:0, ammoMsgCd:0,
   heliGun:false, hadHeli:false, armor:0,
   nades:0, nadeCd:0, robs:0, medkits:0,
-  copHeatCd:0, pedHeatCd:0, boomHeatCd:0, shellCd:0, eatCd:0, loddCd:0, storeCd:0,
+  copHeatCd:0, pedHeatCd:0, boomHeatCd:0, shellCd:0, eatCd:0, loddCd:0, loddCount:0, storeCd:0,
   bling:false, capColor:'#2f6fd0',
   vehTokens:{atv:0,heli:0,jet:0,tank:0}, selVeh:null,
   carUp:{motor:0,panser:0},
@@ -1385,9 +1385,10 @@ function buyShelfItem(item){
     return;
   }
   if(item==='lodd'){
-    if(state.loddCd>0){ toast('🎫 Loddselgeren: «Rolig nå! Ett om gangen.» ('+Math.ceil(state.loddCd)+' s)'); return; }
+    if(state.loddCd>0){ toast('🎫 Loddselgeren: «Rolig nå! Tre om gangen.» ('+Math.ceil(state.loddCd)+' s)'); return; }
     if(state.cash>=50){
-      state.cash-=50; state.loddCd=15;
+      state.cash-=50; state.loddCount++;
+      if(state.loddCount%3===0) state.loddCd=15; // nedkjøling hver 3. billett – 3 på rappen er greit
       const r=Math.random();
       if(r<0.02){ state.cash+=5000; sfx.cash(); setTimeout(()=>sfx.cash(),150); setTimeout(()=>sfx.cash(),300);
         toast('🎫🎉 JAAACKPOT!!! +5000 KR!!! 🎉🎉🎉'); }
@@ -1580,6 +1581,12 @@ const VEHS=[
   {id:'tank',name:'Tanks',      cost:9000},
 ];
 const VEH_ICON={atv:'🛵',heli:'🚁',jet:'✈️',tank:'🪖'};
+const VEH_STATS={
+  atv:{w:18,l:32,hp:60, pMax:470,pAcc:430,color:'#d05c2a'},
+  tank:{w:34,l:58,hp:2000,pMax:175,pAcc:150,color:'#5c6b4f'},
+  heli:{w:26,l:46,hp:220,pMax:400,pAcc:300,color:'#31415f',fly:true},
+  jet:{w:24,l:64,hp:150,pMax:720,pAcc:520,color:'#3a4250',fly:true},
+};
 const VEH_ORDER=['atv','heli','jet','tank'];
 // hvilket kjøretøy plasseres ut nå? (klikk 🚗 for å bla)
 function selectedVeh(){
@@ -1603,12 +1610,7 @@ function spawnVehicle(){
   if(!id){ toast('🚗 Ingen kjøretøy på lager – kjøp (eller ran!) i KJØRETØYBUTIKKEN 🏎'); return; }
   state.vehTokens[id]--;
   if(id==='heli') state.hadHeli=true;
-  const P={
-    atv:{w:18,l:32,hp:60, pMax:470,pAcc:430,color:'#d05c2a'},
-    tank:{w:34,l:58,hp:2000,pMax:175,pAcc:150,color:'#5c6b4f'},
-    heli:{w:26,l:46,hp:220,pMax:400,pAcc:300,color:'#31415f',fly:true},
-    jet:{w:24,l:64,hp:150,pMax:720,pAcc:520,color:'#3a4250',fly:true},
-  }[id];
+  const P=VEH_STATS[id];
   const car=Object.assign({role:'player',kind:id,dir:0,node:[0,0],
     x:state.px,y:state.py,h:state.pdir,v:0,spd:0,maxhp:P.hp,
     brakeT:0,stuckT:0,revT:0,dmgCd:0,fireCd:0},P);
@@ -2132,7 +2134,7 @@ function renderInterior(){
     }
     else lbl='';
     ctx.fillStyle=col;
-    ctx.fillText(lbl, sh.x+sh.w/2, sh.y-6);
+    ctx.fillText(lbl, sh.x+sh.w/2-5, sh.y-6); // -5px: samme emoji-korreksjon som ute
   }
   ctx.font='16px sans-serif';
   if(I.shop.type==='politi'){
@@ -2212,7 +2214,7 @@ function drawShops(){
       ctx.font='bold 11px sans-serif';
       ctx.fillStyle='#fff';ctx.strokeStyle='rgba(0,0,0,.7)';ctx.lineWidth=3;
       let lbl;
-      if(closed) lbl = 'STENGT'+(nightNow()?' 🌙':' ☀️')+' – kom tilbake!';
+      if(closed) lbl = 'STENGT ('+(nightNow()?'kveld':'dag')+') – kom tilbake!';
       else if(sh.type==='våpen') lbl = state.owned[0] ? 'GATA: AMMO 100 kr' : 'GATA: PISTOL 250 kr';
       else if(sh.type==='mekker') lbl = 'MEKKER\'N – gå inn';
       else if(sh.type==='lege') lbl = 'LEGEN – gå inn';
@@ -2224,7 +2226,7 @@ function drawShops(){
       else if(sh.type==='politi') lbl = 'POLITISTASJONEN – gå inn 👀';
       else lbl = sh.cd>0 ? 'ÅPEN (tom kasse)' : 'ÅPEN – gå inn';
       const tw=ctx.measureText(lbl).width;
-      const lx=clamp(sx, tw/2+8, W-tw/2-8); // aldri utenfor skjermkanten!
+      const lx=clamp(sx-5, tw/2+8, W-tw/2-8); // -5px: kompenserer emoji-ikonets visuelle venstreforskyvning
       ctx.strokeText(lbl,lx,sy-18);ctx.fillText(lbl,lx,sy-18);
       ctx.font='20px sans-serif';
     }
@@ -2415,10 +2417,13 @@ function updateWanted(dt){
   }
   // pågripelse: politi nært + spilleren står (nesten) stille
   let bust=false;
+  const inTank = state.mode==='car' && state.pcar.kind==='tank';
   const pv = state.mode==='car'? Math.abs(state.pcar.v) : 0;
   for(const c of cops){
     const d=dist(c.x,c.y,playerX(),playerY());
-    if(d<85 && pv<60) bust=true;
+    if(d<85 && pv<60 && !inTank) bust=true; // de får IKKE dratt deg ut av en tanks
+    else if(d<85 && inTank && Math.random()<dt/8)
+      toast('👮 Politiet banker på panseret. Du hører ingenting. 🪖');
   }
   if(bust) state.bustT+=dt; else state.bustT=Math.max(0,state.bustT-dt*2);
   if(state.bustT>1.3 && !state.busting && !state.ko && state.wanted<5) doBust();
@@ -3282,8 +3287,12 @@ function saveGame(){
       loan:state.loan,
       px:playerX(), py:playerY(),
       selVeh:state.selVeh,
+      // parkerte spesialkjøretøy overlever refresh – med posisjon og skade!
+      placedVehs:cars.filter(c=>c!==state.pcar && c.role==='player' && c.kind && VEH_STATS[c.kind])
+        .map(c=>({k:c.kind, x:Math.round(c.x), y:Math.round(c.y),
+          h:+c.h.toFixed(2), hp:Math.round(c.hp)})),
       // butikkene HUSKER at du har ranet dem (og åpningstidene sine) – ingen refresh-spam!
-      storeCd:state.storeCd,
+      storeCd:state.storeCd, loddCount:state.loddCount,
       shopCds:shops.map(sh=>Math.ceil(sh.cd||0)),
       hrs:shops.map(sh=>(sh.openDay?1:0)|(sh.openNight?2:0)),
       // sitter du i et KJØPT kjøretøy, legges det trygt i inventaret ved lagring
@@ -3323,7 +3332,19 @@ function loadGame(){
       if(d.pendVeh==='heli') state.hadHeli=true;
     }
     if(d.selVeh) state.selVeh=d.selVeh;
+    if(Array.isArray(d.placedVehs)){
+      for(const pv of d.placedVehs){
+        const B=VEH_STATS[pv.k]; if(!B) continue;
+        const car=Object.assign({role:'player', kind:pv.k, dir:0, node:[0,0],
+          x:clamp(+pv.x||0, T, WORLD_W-T), y:clamp(+pv.y||0, T, WORLD_H-T),
+          h:+pv.h||0, v:0, spd:0, maxhp:B.hp,
+          brakeT:0, stuckT:0, revT:0, dmgCd:0, fireCd:0}, B);
+        car.hp=clamp(+pv.hp||B.hp, 1, B.hp);
+        cars.push(car);
+      }
+    }
     state.storeCd=Math.max(0,+d.storeCd||0);
+    state.loddCount=d.loddCount|0;
     if(Array.isArray(d.shopCds)){ // butikkene genereres i samme rekkefølge hver gang
       shops.forEach((sh,i)=>{ if(typeof d.shopCds[i]==='number') sh.cd=Math.max(0,d.shopCds[i]); });
     }
