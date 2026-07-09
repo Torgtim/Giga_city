@@ -182,7 +182,8 @@ window.addEventListener('resize', resize); resize();
 
 // ---------- Verden ----------
 const T = 48;                 // tile-størrelse i px
-const GW = 64, GH = 64;       // verden i tiles (8x8 kvartaler)
+const GW = 96, GH = 96;       // verden i tiles (12x12 kvartaler)
+const NB = GW/8;              // antall kvartaler per akse (avledet – aldri hardkod 8!)
 const WORLD_W = GW*T, WORLD_H = GH*T;
 const ROAD=0, SIDE=1, BLDG=2, PARK=3;
 
@@ -446,7 +447,7 @@ function makeCar(role, gx, gy, dir){
 function spawnTraffic(){
   // spawn på et tilfeldig veikryss et stykke unna spilleren, men ikke alt for langt
   for(let i=0;i<24;i++){
-    const gx=(Math.random()*8)|0, gy=(Math.random()*8)|0;
+    const gx=(Math.random()*NB)|0, gy=(Math.random()*NB)|0;
     const [nx,ny]=nodePos(gx,gy);
     const d=dist(nx,ny,playerX(),playerY());
     if(d>500 && d<2200){
@@ -477,7 +478,7 @@ function spawnParked(n){
 }
 function spawnPolice(){
   for(let i=0;i<30;i++){
-    const gx=(Math.random()*8)|0, gy=(Math.random()*8)|0;
+    const gx=(Math.random()*NB)|0, gy=(Math.random()*NB)|0;
     const [nx,ny]=nodePos(gx,gy);
     const d=dist(nx,ny,playerX(),playerY());
     if(d>600 && d<1800){
@@ -516,7 +517,7 @@ function advanceNode(c){
   for(let d=0;d<4;d++){
     if(d===(c.dir+2)%4) continue; // ikke snu
     const nx=c.node[0]+DIRS[d][0], ny=c.node[1]+DIRS[d][1];
-    if(nx>=0&&nx<8&&ny>=0&&ny<8){ opts.push(d); if(d===c.dir) opts.push(d,d); } // rett frem vektes
+    if(nx>=0&&nx<NB&&ny>=0&&ny<NB){ opts.push(d); if(d===c.dir) opts.push(d,d); } // rett frem vektes
   }
   if(opts.length===0){ c.dir=(c.dir+2)%4; }
   else c.dir = opts[(Math.random()*opts.length)|0];
@@ -596,7 +597,7 @@ function updatePolice(c,dt){
 
 function spawnTank(){
   for(let i=0;i<30;i++){
-    const gx=(Math.random()*8)|0, gy=(Math.random()*8)|0;
+    const gx=(Math.random()*NB)|0, gy=(Math.random()*NB)|0;
     const [nx,ny]=nodePos(gx,gy);
     const d=dist(nx,ny,playerX(),playerY());
     if(d>700 && d<2000){
@@ -1223,19 +1224,20 @@ function doKO(reason){
 // ---------- Butikker: plassering ----------
 function initShops(){
   const names=['','KIOSK','MATBUTIKK','GULLSMED'];
-  for(let by=0;by<8;by++)for(let bx=0;bx<8;bx++){
+  for(let by=0;by<NB;by++)for(let bx=0;bx<NB;bx++){
     if(isParkBlock(bx,by)) continue;
     const h=hash2(bx*11+1,by*13+2);
     if(h<0.30){
       const x=(bx*8+2)*T+T/2, y=(by*8+2)*T+T/2;
-      if(h<0.08){ shops.push({x,y,type:'våpen',cd:0}); }        // gatelanger
-      else if(h<0.115){ shops.push({x,y,type:'mekker',cd:0,name:"MEKKER'N"}); } // verksted
-      else if(h<0.15){ shops.push({x,y,type:'lege',cd:0,name:'LEGEN'}); } // lege
-      else if(h<0.175){ shops.push({x,y,type:'rustning',cd:0,name:'RUSTNINGSSMEDEN'}); }
-      else if(h<0.20){ shops.push({x,y,type:'bensin',cd:0,name:'BENSINSTASJONEN'}); }
-      else{
+      // spesialbutikker er SJELDNE (før tok de 2/3 av alle plasser – derav 4 mekkere!)
+      if(h<0.035){ shops.push({x,y,type:'våpen',cd:0}); }        // gatelanger
+      else if(h<0.055){ shops.push({x,y,type:'mekker',cd:0,name:"MEKKER'N"}); } // verksted
+      else if(h<0.075){ shops.push({x,y,type:'lege',cd:0,name:'LEGEN'}); } // lege
+      else if(h<0.09){ shops.push({x,y,type:'rustning',cd:0,name:'RUSTNINGSSMEDEN'}); }
+      else if(h<0.105){ shops.push({x,y,type:'bensin',cd:0,name:'BENSINSTASJONEN'}); }
+      else{ // ~2/3 av alle butikkplasser = vanlige butikker
         const h2=hash2(bx*7+3,by*9+5);
-        const tier = h2<0.5?1 : h2<0.85?2 : 3;
+        const tier = h2<0.45?1 : h2<0.80?2 : 3;
         shops.push({x,y,type:'butikk',cd:0,
           open: hash2(bx*5+2,by*3+8)<0.62,
           tier, name:names[tier],
@@ -1250,13 +1252,25 @@ function initShops(){
   shops.push({x:34*T+T/2, y:42*T+T/2, type:'lege', cd:0, name:'LEGEN'});
   shops.push({x:42*T+T/2, y:18*T+T/2, type:'rustning', cd:0, name:'RUSTNINGSSMEDEN'});
   shops.push({x:26*T+T/2, y:18*T+T/2, type:'bensin', cd:0, name:'BENSINSTASJONEN'});
-  shops.push({x:18*T+T/2, y:50*T+T/2, type:'kjøretøy', cd:0, open:true,
+  shops.push({x:66*T+T/2, y:26*T+T/2, type:'kjøretøy', cd:0, open:true,
     name:'KJØRETØYBUTIKKEN', robTime:6});
   // BANKEN – monsteret. Én i hele byen.
-  shops.push({x:50*T+T/2, y:50*T+T/2, type:'bank', cd:0, open:true,
+  shops.push({x:74*T+T/2, y:74*T+T/2, type:'bank', cd:0, open:true,
     name:'BANKEN', robTime:10});
   shops.push({x:26*T+T/2, y:34*T+T/2, type:'butikk', cd:0, open:true,
     tier:1, name:'KIOSK', guards:0, robTime:3.7});
+  // garantert MATBUTIKK og GULLSMED – de nye butikktypene spiste opp
+  // trekningssjansene deres, så noen byer ble generert helt uten dem!
+  shops.push({x:18*T+T/2, y:34*T+T/2, type:'butikk', cd:0, open:true,
+    tier:2, name:'MATBUTIKK', guards:1, robTime:4.9});
+  shops.push({x:34*T+T/2, y:50*T+T/2, type:'butikk', cd:0, open:true,
+    tier:3, name:'GULLSMED', guards:2, robTime:6.1});
+  // den nye bydelen: egen lege, bensin og mekker så du slipper å krysse hele kartet
+  shops.push({x:66*T+T/2, y:58*T+T/2, type:'lege', cd:0, name:'LEGEN'});
+  shops.push({x:58*T+T/2, y:74*T+T/2, type:'bensin', cd:0, name:'BENSINSTASJONEN'});
+  shops.push({x:74*T+T/2, y:42*T+T/2, type:'mekker', cd:0, name:"MEKKER'N"});
+  shops.push({x:82*T+T/2, y:66*T+T/2, type:'butikk', cd:0, open:true,
+    tier:2, name:'MATBUTIKK', guards:1, robTime:4.9});
   // VÅPENBUTIKKEN – én i byen, tungt voktet
   shops.push({x:50*T+T/2, y:18*T+T/2, type:'våpenbutikk', cd:0, open:true,
     tier:4, name:'VÅPENBUTIKKEN', robTime:7});
@@ -3269,7 +3283,7 @@ function frame(ts){
 requestAnimationFrame(frame);
 
 // ---------- Auto-lagring 💾 ----------
-const SAVE_KEY='gigacity_save_v1';
+const SAVE_KEY='gigacity_save_v2'; // v2: nytt 12x12-kart = ny butikkliste (gamle indekser passet ikke)
 function storageOK(){
   try{ localStorage.setItem('__gc_t','1'); localStorage.removeItem('__gc_t'); return true; }
   catch(e){ return false; }
@@ -3345,10 +3359,11 @@ function loadGame(){
     }
     state.storeCd=Math.max(0,+d.storeCd||0);
     state.loddCount=d.loddCount|0;
-    if(Array.isArray(d.shopCds)){ // butikkene genereres i samme rekkefølge hver gang
+    // bruk kun lagrede butikkdata hvis listen er nøyaktig like lang (ellers treffer indeksene feil butikk!)
+    if(Array.isArray(d.shopCds) && d.shopCds.length===shops.length){
       shops.forEach((sh,i)=>{ if(typeof d.shopCds[i]==='number') sh.cd=Math.max(0,d.shopCds[i]); });
     }
-    if(Array.isArray(d.hrs)){
+    if(Array.isArray(d.hrs) && d.hrs.length===shops.length){
       shops.forEach((sh,i)=>{ if(typeof d.hrs[i]==='number'){
         sh.openDay=!!(d.hrs[i]&1); sh.openNight=!!(d.hrs[i]&2);
         if(!sh.openDay&&!sh.openNight) sh.openDay=true;
