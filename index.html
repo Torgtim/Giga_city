@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="no">
 <head>
@@ -322,25 +321,17 @@ window.addEventListener('mouseup',()=>{ shootHeld=false; });
 cv.addEventListener('contextmenu',e=>e.preventDefault());
 
 function hasWeapon(){ return state.owned.some(Boolean); }
-function hasSMGplus(){ for(let i=1;i<N_W;i++) if(state.owned[i]) return true; return false; }
 function curWpn(){ return WEAPONS[state.curW]; }
 function cycleWeapon(){
-  // HELI-GATLING: regn av bly fra lufta!
-  if(!state.interior && state.mode==='car' && state.pcar.kind==='heli' && state.heliGun){
-    state.shootCd=0.07;
-    let a=state.pcar.h;
-    if(mouse.active) a=Math.atan2(mouse.y-(state.pcar.y-state.camY), mouse.x-(state.pcar.x-state.camX));
-    const aa=a+(Math.random()-0.5)*0.12;
-    bullets.push({x:state.pcar.x+Math.cos(aa)*30,y:state.pcar.y+Math.sin(aa)*30,
-      vx:Math.cos(aa)*720,vy:Math.sin(aa)*720,
-      from:'player',t:0.7,dmg:10,space:'out'});
-    if(Math.random()<0.25) beep(650+Math.random()*250,.03,'sawtooth',.05,250);
-    return;
-  }
   if(!hasWeapon()) return;
   for(let i=1;i<=N_W;i++){
     const n=(state.curW+i)%N_W;
-    if(state.owned[n]){ state.curW=n; toast('🔫 '+WEAPONS[n].name); beep(700,.05,'square',.06); return; }
+    if(state.owned[n]){
+      state.curW=n;
+      toast('🔫 '+WEAPONS[n].name);
+      beep(700,.04,'square',.05,900);
+      return;
+    }
   }
 }
 window.addEventListener('keydown',e=>{
@@ -1312,26 +1303,6 @@ function nearestShop(maxD){
 
 // ---------- Mekker'n: oppgrader kjøreferdighetene ----------
 const UPG={motor:[400,800,1500], panser:[300,600,1200]};
-function nextUpg(){
-  const u=state.carUp;
-  if(u.motor<3)  return {kind:'motor',  lbl:'MOTOR NIVÅ '+(u.motor+1)+': '+UPG.motor[u.motor]+' kr', cost:UPG.motor[u.motor]};
-  if(u.panser<3) return {kind:'panser', lbl:'PANSER NIVÅ '+(u.panser+1)+': '+UPG.panser[u.panser]+' kr', cost:UPG.panser[u.panser]};
-  return {kind:'maks', lbl:'MAKS TUNET 🚀'};
-}
-function buyMekk(){
-  const n=nextUpg();
-  if(n.kind==='maks'){ toast('🔧 Alt er maks tunet allerede. Billetta di er et MONSTER.'); return; }
-  if(state.cash<n.cost){ toast('🔧 '+n.lbl+' – tjen mer først!'); return; }
-  state.cash-=n.cost;
-  state.carUp[n.kind]++;
-  sfx.cash();
-  if(n.kind==='motor'){
-    if(state.carUp.motor>=3) toast('🚀 MOTOR MAKS! Billetta di går nå bare ÉN vei: FREMOVER. Trafikk? Pløyer gjennom!');
-    else toast('🔧 Motor nivå '+state.carUp.motor+'! Alle biler du kjører blir raskere.');
-  } else {
-    toast('🛡 Panser nivå '+state.carUp.panser+'! Bilene dine tåler '+(state.carUp.panser*20)+'% mer juling.');
-  }
-}
 function nextGunBuy(){
   for(let i=0;i<N_W;i++) if(!state.owned[i]) return i;
   return -1;
@@ -1652,10 +1623,12 @@ function startPump(){
 function updatePump(dt){
   if(!state.pump) return;
   const c=state.pcar;
-  let near=false;
-  if(state.mode==='car' && c){
-    for(const sh of shops){ if(sh.type==='bensin' && dist(c.x,c.y,sh.x,sh.y)<115){ near=true; break; } }
+  // KRASJ-FIKS: gikk du ut av bilen (eller ble den vraket) er c=null → avbryt trygt
+  if(state.mode!=='car' || !c || c.role==='wreck'){
+    state.pump=null; toast('⛽ Avbrutt – du forlot pumpa!'); return;
   }
+  let near=false;
+  for(const sh of shops){ if(sh.type==='bensin' && dist(c.x,c.y,sh.x,sh.y)<115){ near=true; break; } }
   if(!near || Math.abs(c.v)>14){ state.pump=null; toast('⛽ Avbrutt – du forlot pumpa!'); return; }
   if(state.pump.mode==='fix'){
     state.pump.tick-=dt;
@@ -1684,17 +1657,6 @@ function updatePump(dt){
       } else toast('⛽ Lagring koster 450 kr – du har ikke råd.');
     }
   }
-}
-function legeAction(){
-  if(state.hp<100){
-    if(state.cash>=950){ state.cash-=950; state.hp=100;
-      beep(660,.12,'sine',.12,990); toast('🏥 Full helse! «Prøv å ikke bli skutt igjen.»'); }
-    else toast('🏥 Full helse koster 950 kr.');
-  } else if(state.medkits<3){
-    if(state.cash>=1800){ state.cash-=1800; state.medkits++;
-      sfx.cash(); toast('💊 Medkit kjøpt! Bruk med H / 💊-knappen – full HP når som helst!'); }
-    else toast('💊 Medkit koster 1800 kr (full HP når du vil, midt i kaoset).');
-  } else toast('💊 Du bærer maks medkits (3).');
 }
 function useMedkit(){
   if(state.medkits<=0 || state.ko) return;
