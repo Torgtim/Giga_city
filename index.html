@@ -1457,7 +1457,7 @@ function buyShelfItem(item){
     if(state.cash>=v.cost){
       state.cash-=v.cost; state.vehTokens[v.id]++;
       if(v.id==='heli') state.hadHeli=true;
-      sfx.cash();
+      sfx.cash(); saveNow();
       toast('🏎 '+v.name+' kjøpt! Spawn hos deg med V / 🚗-knappen (1 spawn per kjøp).');
     } else toast(v.name+' koster '+v.cost+' kr.');
     return;
@@ -1633,6 +1633,7 @@ function spawnVehicle(){
   sfx.enter();
   const info={atv:'ATV – liten og spretten!',heli:'HELIKOPTER – flyr over ALT!',
     jet:'JAGERFLY – vanvittig fart!',tank:'TANKS – F/🔫 fyrer KANONEN!'};
+  saveNow();
   toast('🚗 Spawnet: '+info[id]);
 }
 function startPump(){
@@ -1677,7 +1678,7 @@ function updatePump(dt){
         const idx=cars.indexOf(c);
         state.mode='foot'; state.px=c.x; state.py=c.y; state.pcar=null;
         if(idx>=0) cars.splice(idx,1);
-        sfx.cash();
+        sfx.cash(); saveNow();
         toast('⛽📦 '+c.kind.toUpperCase()+' lagret i inventaret! Spawn igjen med V/🚗. (-450 kr)');
       } else toast('⛽ Lagring koster 450 kr – du har ikke råd.');
     }
@@ -1920,7 +1921,7 @@ function updateInterior(dt,inp){
           const v=VEHS[(Math.random()*VEHS.length)|0];
           state.vehTokens[v.id]++;
           if(v.id==='heli') state.hadHeli=true;
-          state.cash+=200; I.shop.cd=900; state.robs++; // 15 min – nøkkelskapet må fylles opp!
+          state.cash+=200; I.shop.cd=900; state.robs++; saveNow(); // 15 min – nøkkelskapet må fylles opp!
           sfx.cash();
           ifloat(I,I.px,I.py-30,'🔑 '+v.name+'! +200 kr','#9dfc9d');
           addWanted(3);
@@ -3302,15 +3303,16 @@ function saveGame(){
       px:playerX(), py:playerY(),
       selVeh:state.selVeh,
       // parkerte spesialkjøretøy overlever refresh – med posisjon og skade!
-      placedVehs:cars.filter(c=>c!==state.pcar && c.role==='player' && c.kind && VEH_STATS[c.kind])
+      // NB: går du ut av et kjøretøy blir role='parked' – derfor sjekker vi kind, ikke role!
+      // Sitter du i et kjøretøy, lagres det som PARKERT der – du spawner ved siden av det.
+      placedVehs:cars.filter(c=>c.role!=='wreck' && c.kind && VEH_STATS[c.kind])
         .map(c=>({k:c.kind, x:Math.round(c.x), y:Math.round(c.y),
-          h:+c.h.toFixed(2), hp:Math.round(c.hp)})),
+          h:+c.h.toFixed(2), hp:Math.round(c.hp), r:'parked'})),
       // butikkene HUSKER at du har ranet dem (og åpningstidene sine) – ingen refresh-spam!
       storeCd:state.storeCd, loddCount:state.loddCount,
       shopCds:shops.map(sh=>Math.ceil(sh.cd||0)),
       hrs:shops.map(sh=>(sh.openDay?1:0)|(sh.openNight?2:0)),
-      // sitter du i et KJØPT kjøretøy, legges det trygt i inventaret ved lagring
-      pendVeh:(state.mode==='car' && state.pcar && state.pcar.pMax)? state.pcar.kind : null};
+      pendVeh:null}; // (gammelt felt – kjøretøyet blir nå stående ute i verden)
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   }catch(e){}
 }
@@ -3349,12 +3351,19 @@ function loadGame(){
     if(Array.isArray(d.placedVehs)){
       for(const pv of d.placedVehs){
         const B=VEH_STATS[pv.k]; if(!B) continue;
-        const car=Object.assign({role:'player', kind:pv.k, dir:0, node:[0,0],
+        const car=Object.assign({role:'parked', kind:pv.k, dir:0, node:[0,0],
           x:clamp(+pv.x||0, T, WORLD_W-T), y:clamp(+pv.y||0, T, WORLD_H-T),
           h:+pv.h||0, v:0, spd:0, maxhp:B.hp,
           brakeT:0, stuckT:0, revT:0, dmgCd:0, fireCd:0}, B);
         car.hp=clamp(+pv.hp||B.hp, 1, B.hp);
         cars.push(car);
+        // satt du I dette kjøretøyet? Da står du nå ved siden av det – aldri oppå
+        if(dist(state.px,state.py,car.x,car.y)<44){
+          for(const off of [[50,0],[-50,0],[0,50],[0,-50],[64,64],[-64,-64]]){
+            const ex=clamp(car.x+off[0], T, WORLD_W-T), ey=clamp(car.y+off[1], T, WORLD_H-T);
+            if(tileAtPx(ex,ey)!==BLDG){ state.px=ex; state.py=ey; break; }
+          }
+        }
       }
     }
     state.storeCd=Math.max(0,+d.storeCd||0);
@@ -3373,6 +3382,7 @@ function loadGame(){
   }catch(e){ return false; }
 }
 function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+function saveNow(){ if(state.running && !state.ko) saveGame(); } // straks-lagring ved viktige endringer
 
 // ---------- Oppstart ----------
 function startGame(){
@@ -3385,7 +3395,7 @@ function startGame(){
   const startCar=makeCar('parked',0,0,3);
   startCar.x=33.5*T; startCar.y=35*T; startCar.h=-Math.PI/2; startCar.v=0;
   startCar.color='#c94f4f';
-  cars.push(startCar);
+  cars.push(ca startCar);
   spawnParked(26);
   initShops();
   for(let i=0;i<14;i++) spawnTraffic();
