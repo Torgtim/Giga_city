@@ -900,7 +900,7 @@ function tryShoot(dt,inp){
   }
   if(state.shootCd>0) return;
   const inside=!!state.interior;
-  if(w.rocket && inside){ toast('💥 IKKE fyr av RPG innendørs!! (Fornuftig av deg å spørre.)'); return; }
+
   state.shootCd=w.cd; state.gun.ammo-=w.shot;
   const px=inside? state.interior.px : playerX();
   const py=inside? state.interior.py : playerY();
@@ -932,7 +932,16 @@ function tryShoot(dt,inp){
     if(best!==null) a=best;
   }
   if(w.rocket){
-    fireShell(px,py,a,true,440); // RPG = rakett som eksploderer!
+    if(inside){
+      // Innendørs: raketten flyr som en kule, men smeller der den lander.
+      // Ja, du kan sprenge deg selv. Det er prisen for en RPG i en butikk. 😈
+      bullets.push({x:px+Math.cos(a)*20, y:py+Math.sin(a)*20,
+        vx:Math.cos(a)*300, vy:Math.sin(a)*300,
+        from:'player', t:1.2, dmg:0, space:'in', rocket:true});
+      beep(90,.22,'sawtooth',.2,40);
+    } else {
+      fireShell(px,py,a,true,440);
+    }
     return;
   }
   for(let i=0;i<w.pellets;i++){
@@ -1542,6 +1551,7 @@ function enterInterior(shop){
   else if(shop.type==='bensin') toast('⛽ BENSINSTASJONEN! Kiosk her inne – og pumpa ute fikser bilen (kjør inntil og trykk E/PUMPE).');
   else if(shop.type==='kjøretøy') toast('🏎 KJØRETØYBUTIKKEN! Tanks, jagerfly, heli, ATV… Ran nøkkelskapet med HAGLE = tilfeldig kjøretøy 😈');
   else if(shop.type==='bank') toast('🏦 BANKEN. Lån ved disken… eller HVELVET bakerst: 15 000 kr og 24 VAKTER. Lykke til. Seriøst.');
+  if(state.owned[6]) setTimeout(()=>toast('💥 Du har RPG. Ja, den virker innendørs. Nei, den bryr seg ikke om hvor DU står.'),1200);
   else{
     const tips=['','Kiosk – lite i kassa, men trygt.','Matbutikk – grei kasse.','GULLSMED – feit loot… og TO væpnede vakter! 💎'];
     toast('🚪 '+shop.name+'. '+tips[shop.tier]);
@@ -1958,9 +1968,11 @@ function updateInterior(dt,inp){
         for(const g of I.guards){
           if(g.hp<=0) continue;
           if(dist(b.x,b.y,g.x,g.y)<13){
-            g.hp-=Math.round(b.dmg*(g.soft||1)); wakeGuards(I);
-            ifloat(I,g.x,g.y-16,'-'+b.dmg,'#ffd54a');
-            if(g.hp<=0) guardDown(I,g);
+            if(!b.rocket){
+              g.hp-=Math.round(b.dmg*(g.soft||1)); wakeGuards(I);
+              ifloat(I,g.x,g.y-16,'-'+b.dmg,'#ffd54a');
+              if(g.hp<=0) guardDown(I,g);
+            }
             dead=true; break;
           }
         }
@@ -1968,7 +1980,10 @@ function updateInterior(dt,inp){
         if(dist(b.x,b.y,I.px,I.py)<13){ hurtPlayer(b.dmg,'zap'); dead=true; }
       }
     }
-    if(dead) bullets.splice(i,1);
+    if(dead){
+      if(b.rocket){ explodeIn(I,b.x,b.y); wakeGuards(I); }  // 💥 RAKETTEN SMELLER
+      bullets.splice(i,1);
+    }
   }
 
   // effekter
@@ -2149,6 +2164,12 @@ function renderInterior(){
     ctx.fillRect(-6,-1.6,12,3.2);ctx.restore();
   }
   for(const n of grenades) if(n.space==='in') drawNade(n.x,n.y,n.t);
+  for(const b of bullets){ // rakett-hale innendørs
+    if(b.space!=='in' || !b.rocket) continue;
+    ctx.fillStyle='#ffb54a'; ctx.fillRect(b.x-3,b.y-3,6,6);
+    ctx.fillStyle='rgba(255,140,60,.5)';
+    ctx.fillRect(b.x-b.vx*0.02-2, b.y-b.vy*0.02-2, 4,4);
+  }
   // poffer
   for(const p of I.puffs){
     ctx.globalAlpha=1-p.t/p.life;
